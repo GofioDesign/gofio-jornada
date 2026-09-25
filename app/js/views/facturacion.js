@@ -1,7 +1,7 @@
 // Módulo FACTURACIÓN (solo testers). De momento: listado de facturas y
 // "facturar horas": convierte la jornada registrada para un cliente en líneas de factura.
 import { api } from '../api.js';
-import { h, accion, aviso, eur, fecha, hoyISO, sumarDias } from '../ui.js';
+import { h, montar, accion, aviso, eur, fecha, hoyISO, sumarDias } from '../ui.js';
 import { fmtMin } from '../lib/jornada.js';
 
 export async function vistaFacturacion(app, clienteId) {
@@ -63,7 +63,7 @@ async function facturarHoras(app, clienteId) {
   const pintar = () => {
     const ls = lineas();
     const base = ls.reduce((s, l) => s + Math.round(l.cantidad * l.pvp * 100), 0) / 100;
-    cuerpo.replaceChildren(
+    montar(cuerpo,
       horas.length ? h('table.tabla',
         h('thead', h('tr', h('th', ''), h('th', 'Día'), h('th', 'Persona'), h('th', 'Qué'), h('th', 'Tiempo'))),
         h('tbody', horas.map(x => h('tr', h('td', h('input', { type: 'checkbox', checked: x._sel, 'aria-label': 'Incluir', onchange: ev => { x._sel = ev.target.checked; pintar(); } })),

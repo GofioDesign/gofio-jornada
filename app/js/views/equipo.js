@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { h, accion, aviso, hora, fecha, hoyISO, sumarDias, ROLES } from '../ui.js';
+import { h, montar, accion, aviso, hora, fecha, hoyISO, sumarDias, ROLES } from '../ui.js';
 import { estadoActual, fmtMin, diaLocal, TIPOS } from '../lib/jornada.js';
 import { toCSV, descargar } from '../lib/csv.js';
 
@@ -38,7 +38,7 @@ export async function vistaEquipo(app) {
     filas = await api.resumen(app.org, desde.value, hasta.value, persona.value || null);
     const porPersona = {};
     filas.forEach(r => { const p = porPersona[r.user_id] = porPersona[r.user_id] || { dias: 0, t: 0, p: 0, d: 0, km: 0 }; p.dias++; p.t += r.minutos_trabajo; p.p += r.minutos_pausa; p.d += r.minutos_desplazamiento; p.km += Number(r.km_linea_recta) || 0; });
-    tabla.replaceChildren(
+    montar(tabla,
       Object.keys(porPersona).length ? h('table.tabla',
         h('thead', h('tr', h('th', 'Persona'), h('th', 'Días'), h('th', 'Trabajo'), h('th', 'Pausas'), h('th', 'Desplaz.'), h('th', 'Km'))),
         h('tbody', Object.entries(porPersona).map(([u, p]) => h('tr', h('td', nombre(u)), h('td', p.dias), h('td', fmtMin(p.t)), h('td', fmtMin(p.p)), h('td', fmtMin(p.d)), h('td', p.km.toLocaleString('es-ES', { maximumFractionDigits: 1 })))))) : h('p.vacio', 'Sin registros en ese periodo.'),

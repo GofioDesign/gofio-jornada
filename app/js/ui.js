@@ -21,7 +21,8 @@ export function h(sel, attrs, ...hijos) {
   return el;
 }
 
-export function montar(destino, ...nodos) { destino.replaceChildren(...nodos.flat()); }
+/** Como replaceChildren, pero ignora null/undefined/false (replaceChildren los pintaría como texto "null"). */
+export function montar(destino, ...nodos) { destino.replaceChildren(...nodos.flat().filter(n => n != null && n !== false)); }
 
 let tt;
 export function aviso(msg, tipo = 'info') {
