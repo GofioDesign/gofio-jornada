@@ -1,5 +1,9 @@
 -- Simulación mínima del entorno Supabase para probar las migraciones en un Postgres local.
 -- NO se ejecuta en Supabase.
+-- Como en Supabase, pgcrypto vive en el esquema "extensions" (no en public).
+create schema if not exists extensions;
+create extension if not exists pgcrypto schema extensions;
+do $$ begin execute format('alter database %I set search_path = "$user", public, extensions', current_database()); end $$;
 do $$ begin create role anon nologin; exception when duplicate_object then null; end $$;
 do $$ begin create role authenticated nologin; exception when duplicate_object then null; end $$;
 do $$ begin create role service_role nologin bypassrls; exception when duplicate_object then null; end $$;

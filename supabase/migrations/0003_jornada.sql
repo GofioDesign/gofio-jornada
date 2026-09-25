@@ -94,7 +94,7 @@ create or replace function public._insertar_fichaje(
   p_org uuid, p_user uuid, p_tipo tipo_fichaje, p_lat double precision, p_lng double precision, p_prec real,
   p_cliente uuid, p_nota text, p_origen text default 'APP', p_declarado timestamptz default null,
   p_corrige uuid default null, p_motivo text default null, p_estado text default null)
-returns public.fichajes language plpgsql security definer set search_path = public as $$
+returns public.fichajes language plpgsql security definer set search_path = public, extensions as $$
 declare v_prev text; v_row fichajes; v_now timestamptz := clock_timestamp();
 begin
   perform pg_advisory_xact_lock(hashtext('fichaje:' || p_org || ':' || p_user));

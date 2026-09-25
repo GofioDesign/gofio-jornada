@@ -239,7 +239,7 @@ create or replace function public.emitir_factura(
   p_periodo_desde date default null, p_periodo_hasta date default null,
   p_presupuesto uuid default null, p_rectifica uuid default null, p_motivo text default null,
   p_horas jsonb default null)   -- tramos de JORNADA que se facturan: [{user_id, dia, tipo, minutos, km}]
-returns public.facturas language plpgsql security definer set search_path = public as $$
+returns public.facturas language plpgsql security definer set search_path = public, extensions as $$
 declare
   o organizaciones; c clientes; t jsonb; v_serie text; v_num text; v_max int; v_last date; v_prev text;
   v_irpf numeric; v_f facturas; l jsonb; i int := 0; v_tipo text := 'FACTURA';
@@ -311,7 +311,7 @@ end $$;
 
 -- Comprobar la cadena de huellas (equivale a "Comprobar integridad" de la v7)
 create or replace function public.comprobar_integridad(p_org uuid)
-returns table (num text, ok boolean) language sql stable security definer set search_path = public as $$
+returns table (num text, ok boolean) language sql stable security definer set search_path = public, extensions as $$
   select f.num,
          f.huella = encode(digest(concat_ws('|', coalesce(f.huella_anterior, ''), f.num, to_char(f.fecha, 'DD/MM/YYYY'), f.cliente_codigo,
             to_char(f.base, 'FM999999990.00'), to_char(f.igic, 'FM999999990.00'), to_char(f.irpf, 'FM999999990.00'),
