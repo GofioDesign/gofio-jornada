@@ -1,18 +1,27 @@
-// Módulo FACTURACIÓN (solo testers). De momento: listado de facturas, detalle con PDF y
-// "facturar horas": convierte la jornada registrada para un cliente en líneas de factura.
+// Módulo FACTURACIÓN (solo testers): listado de facturas y borradores, detalle con PDF,
+// borradores editables y "facturar horas" (convierte la jornada de un cliente en un borrador).
 import { api } from '../api.js';
-import { h, montar, accion, aviso, eur, fecha, hoyISO, sumarDias } from '../ui.js';
+import { h, montar, accion, eur, fecha, hoyISO, sumarDias } from '../ui.js';
 import { fmtMin } from '../lib/jornada.js';
+import { calcular, irpfCliente } from '../lib/factura.js';
 import { vistaFactura } from './factura.js';
+import { vistaBorrador } from './borrador.js';
 
-// #/facturacion · #/facturacion/<clienteId> · #/facturacion/factura/<facturaId>
+// #/facturacion · #/facturacion/<clienteId> (facturar horas) · #/facturacion/factura/<id> · #/facturacion/borrador/<id|nuevo>
 export async function vistaFacturacion(app, id, sub) {
   if (id === 'factura') return vistaFactura(app, sub);
+  if (id === 'borrador') return vistaBorrador(app, sub);
   return id ? facturarHoras(app, id) : listado(app);
 }
 
 async function listado(app) {
-  const [facturas, clientes] = await Promise.all([api.facturas(app.org), api.clientes(app.org)]);
+  const [facturas, clientes, borradores] = await Promise.all([api.facturas(app.org), api.clientes(app.org), api.borradores(app.org)]);
+  const nombreCliente = id => clientes.find(c => c.id === id)?.nombre || 'Sin cliente';
+  const abrirBorrador = b => { location.hash = '#/facturacion/borrador/' + b.id; };
+  const listaBorradores = borradores.length ? h('table.tabla',
+    h('thead', h('tr', h('th', 'Cliente'), h('th', 'Modificado'), h('th.num', 'Total'))),
+    h('tbody', borradores.map(b => h('tr.enlace', { role: 'link', tabIndex: 0, onclick: () => abrirBorrador(b), onkeydown: e => { if (e.key === 'Enter') abrirBorrador(b); } },
+      h('td', nombreCliente(b.cliente_id)), h('td', fecha(b.actualizado_en)), h('td.num', eur(b.total)))))) : null;
   const buscar = h('input', { type: 'search', placeholder: 'Buscar número o cliente…', 'aria-label': 'Buscar' });
   const estado = h('select', { 'aria-label': 'Estado de cobro' }, ['', 'PENDIENTE', 'VENCIDA', 'PARCIAL', 'COBRADA', 'HISTORICA', 'RECTIFICADA'].map(v => h('option', { value: v }, v || 'Todos los estados')));
   const tabla = h('div');
@@ -32,9 +41,10 @@ async function listado(app) {
     h('option', { value: '' }, 'Elige cliente…'), clientes.map(c => h('option', { value: c.id }, c.nombre)));
 
   return h('section.pila',
-    h('div.cab', h('h1', 'Facturación'), h('span.etiqueta', 'beta')),
-    h('div.tarjeta', h('h2', 'Facturar horas registradas'), h('p.ayuda', 'Convierte las horas y desplazamientos fichados para un cliente en una factura.'), elegir),
-    h('div.tarjeta', h('h2', 'Facturas'), h('div.filtros', buscar, estado), tabla));
+    h('div.cab', h('h1', 'Facturación ', h('span.etiqueta', 'beta')), h('a.btn.primario', { href: '#/facturacion/borrador/nuevo' }, '+ Nueva factura')),
+    listaBorradores ? h('div.tarjeta', h('h2', 'Borradores'), h('p.ayuda', 'Facturas en preparación: puedes cambiarlas o borrarlas hasta que las emitas.'), listaBorradores) : null,
+    h('div.tarjeta', h('h2', 'Facturar horas registradas'), h('p.ayuda', 'Convierte las horas y desplazamientos fichados para un cliente en un borrador de factura.'), elegir),
+    h('div.tarjeta', h('h2', 'Facturas emitidas'), h('div.filtros', buscar, estado), tabla));
 }
 
 async function facturarHoras(app, clienteId) {
@@ -75,14 +85,15 @@ async function facturarHoras(app, clienteId) {
       ls.length ? h('div.tarjeta.interior', h('h3', 'Líneas de la factura'),
         h('ul', ls.map(l => h('li', `${l.descripcion} — ${l.cantidad.toLocaleString('es-ES')} ${l.unidad} × ${eur(l.pvp)}`))),
         h('p', 'Base imponible: ', h('strong', eur(base)), h('span.ayuda', ` · + IGIC ${igic} % · IRPF según cliente`)),
+        h('p.ayuda', 'En el borrador podrás revisar y cambiar las líneas antes de emitir la factura.'),
         h('button.btn.primario', {
           onclick: ev => accion(ev.currentTarget, async () => {
-            if (!confirm(`¿Emitir la factura a ${c.nombre}? Una factura emitida no se puede borrar.`)) return;
-            const f = await api.emitirFactura(app.org, { cliente_id: c.id, fecha: hoy, lineas: ls, desde: desde.value, hasta: hasta.value,
-              horas: horas.filter(x => x._sel).map(x => ({ user_id: x.user_id, dia: x.dia, tipo: x.tipo, minutos: x.minutos, km: x.km })) });
-            aviso(`Factura ${f.num} emitida: ${eur(f.total)}`, 'ok'); location.hash = '#/facturacion/factura/' + f.id;
+            const datos = { fecha: hoy, lineas: ls, desde: desde.value, hasta: hasta.value, irpf_pct: irpfCliente(c, app.e.config),
+              horas: horas.filter(x => x._sel).map(x => ({ user_id: x.user_id, dia: x.dia, tipo: x.tipo, minutos: x.minutos, km: x.km })) };
+            const b = await api.guardarBorrador(app.org, { cliente_id: c.id, datos, total: calcular(ls, datos.irpf_pct).total });
+            location.hash = '#/facturacion/borrador/' + b.id;
           }),
-        }, 'Emitir factura')) : null);
+        }, 'Crear borrador')) : null);
   };
   const cargar = async () => { horas = (await api.horasPendientes(app.org, c.id, desde.value, hasta.value)).map(x => ({ ...x, _sel: true })); pintar(); };
   [desde, hasta].forEach(x => x.addEventListener('change', () => accion(null, cargar)));

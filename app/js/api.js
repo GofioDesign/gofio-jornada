@@ -3,6 +3,7 @@
 //  - Modo DEMO: sin configurar nada; guarda en este navegador para probar la app.
 import { CONFIG } from '../config.js';
 import { estadoActual, tramos, totales, diaLocal } from './lib/jornada.js';
+import { calcular, irpfCliente, emisorDe } from './lib/factura.js';
 
 export const DEMO = !CONFIG.SUPABASE_URL || /\?demo|#demo/.test(location.href);
 
@@ -103,6 +104,13 @@ const supa = {
       c.from('facturas_lineas').select('*').eq('factura_id', id).order('linea')]);
     return ok(f) && { ...f.data, lineas: ok(l) };
   },
+  async borradores(org) { const c = await cliente(); return ok(await c.from('borradores').select('*').eq('org_id', org).eq('tipo', 'FACTURA').order('actualizado_en', { ascending: false })); },
+  async borrador(org, id) { const c = await cliente(); return ok(await c.from('borradores').select('*').eq('org_id', org).eq('id', id).maybeSingle()); },
+  async guardarBorrador(org, b) {
+    const c = await cliente(); const fila = { org_id: org, tipo: 'FACTURA', cliente_id: b.cliente_id || null, datos: b.datos, total: b.total ?? null };
+    return ok(b.id ? await c.from('borradores').update(fila).eq('id', b.id).select().single() : await c.from('borradores').insert(fila).select().single());
+  },
+  async borrarBorrador(id) { const c = await cliente(); return ok(await c.from('borradores').delete().eq('id', id)); },
   async emitirFactura(org, d) {
     const c = await cliente();
     return ok(await c.rpc('emitir_factura', { p_org: org, p_cliente: d.cliente_id, p_fecha: d.fecha, p_lineas: d.lineas, p_irpf_pct: d.irpf_pct ?? null,
@@ -246,23 +254,29 @@ const demo = {
   async factura(org, id) { return db().facturas.find(f => f.org_id === org && f.id === id) || null; },
   async emitirFactura(org, x) {
     const d = db(); const n = d.facturas.length + 1;
-    const cent = l => Math.round(l.cantidad * l.pvp * (1 - (l.dto || 0) / 100) * 100);
-    const base = x.lineas.reduce((s, l) => s + cent(l), 0) / 100;
-    const tipos = {}; x.lineas.forEach(l => { tipos[l.igic || 0] = (tipos[l.igic || 0] || 0) + cent(l); });
-    const igic_desglose = Object.entries(tipos).map(([pct, b]) => ({ pct: Number(pct), base: b / 100, cuota: Math.round(b * pct / 100) / 100 }));
-    const igic = Math.round(igic_desglose.reduce((s, g) => s + g.cuota * 100, 0)) / 100;
-    const irpf = Math.round(base * (x.irpf_pct || 0)) / 100;
+    if (!x.lineas?.length) throw new Error('La factura no tiene líneas');
     const o = d.orgs.find(y => y.id === org), c = d.clientes.find(y => y.id === x.cliente_id) || {};
-    const lineas = x.lineas.map((l, i) => ({ linea: i + 1, codigo: l.codigo, descripcion: l.descripcion, cantidad: l.cantidad, unidad: l.unidad, pvp_ud: l.pvp,
-      dto_pct: l.dto || 0, base: cent(l) / 100, igic_pct: l.igic || 0, igic: Math.round(cent(l) * (l.igic || 0) / 100) / 100 }));
+    const t = calcular(x.lineas, x.irpf_pct ?? irpfCliente(c, o?.config));
+    const lineas = t.lineas.map((l, i) => ({ linea: i + 1, codigo: l.codigo, descripcion: l.descripcion, cantidad: l.cantidad, unidad: l.unidad, pvp_ud: l.pvp,
+      dto_pct: l.dto || 0, base: l.base, igic_pct: l.igic || 0, igic: l.cuota }));
     const f = { id: uid(), org_id: org, num: 'DEMO-' + String(n).padStart(4, '0'), tipo_doc: 'FACTURA', fecha: x.fecha, vencimiento: new Date(Date.parse(x.fecha) + 30 * 864e5).toISOString().slice(0, 10),
-      periodo_desde: x.desde || null, periodo_hasta: x.hasta || null, cliente: { ...c }, emisor: { marca: o?.nombre, titular: o?.titular, nif: o?.nif, direccion: o?.direccion, cp: o?.cp, localidad: o?.localidad, provincia: o?.provincia, email: o?.email, telefono: o?.telefono, web: o?.web, iban: o?.iban, bic: o?.bic, pago: o?.config?.medio_pago_texto,
-        ...(tipos[0] !== undefined && o?.config?.texto_exencion_igic ? { nota_igic: o.config.texto_exencion_igic } : {}) },
-      base, igic, igic_desglose, irpf_pct: x.irpf_pct || 0, irpf, total: Math.round((base + igic - irpf) * 100) / 100, lineas, huella: 'demo', estado_cobro: 'PENDIENTE' };
+      periodo_desde: x.desde || null, periodo_hasta: x.hasta || null, cliente: { ...c }, emisor: emisorDe(o, t.igic_desglose),
+      base: t.base, igic: t.igic, igic_desglose: t.igic_desglose, irpf_pct: x.irpf_pct ?? irpfCliente(c, o?.config), irpf: t.irpf, total: t.total,
+      observaciones: x.observaciones || null, lineas, huella: 'demo', estado_cobro: 'PENDIENTE' };
     d.facturas.unshift(f);
     (x.horas || []).forEach(h => d.facturadas.push([x.cliente_id, h.user_id, h.dia, h.tipo].join('|')));
     guardar(d); return f;
   },
+  async borradores(org) { return (db().borradores || []).filter(b => b.org_id === org).sort((a, b) => b.actualizado_en.localeCompare(a.actualizado_en)); },
+  async borrador(org, id) { return (db().borradores || []).find(b => b.org_id === org && b.id === id) || null; },
+  async guardarBorrador(org, b) {
+    const d = db(); d.borradores = d.borradores || [];
+    const fila = { org_id: org, tipo: 'FACTURA', cliente_id: b.cliente_id || null, datos: b.datos, total: b.total ?? null, actualizado_en: new Date().toISOString() };
+    let r = b.id && d.borradores.find(x => x.id === b.id);
+    if (r) Object.assign(r, fila); else { r = { id: uid(), ...fila }; d.borradores.push(r); }
+    guardar(d); return r;
+  },
+  async borrarBorrador(id) { const d = db(); d.borradores = (d.borradores || []).filter(b => b.id !== id); guardar(d); },
 };
 
 export const api = DEMO ? demo : supa;

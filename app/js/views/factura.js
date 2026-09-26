@@ -3,20 +3,20 @@
 import { api } from '../api.js';
 import { h, montar } from '../ui.js';
 
-const TXT = {
+export const TXT = {
   ES: {
     locale: 'es-ES', factura: 'Factura', rectificativa: 'Factura rectificativa', num: 'Nº', fecha: 'Fecha', vence: 'Vencimiento',
     periodo: 'Periodo', cliente: 'Cliente', nif: 'NIF', desc: 'Descripción', cant: 'Cant.', precio: 'Precio', dto: 'Dto.',
     igic: 'IGIC', importe: 'Importe', base: 'Base imponible', sobre: 'sobre', irpf: 'Retención IRPF', total: 'Total',
     pago: 'Forma de pago', transferencia: 'Transferencia bancaria', motivo: 'Motivo',
-    obs: 'Observaciones', huella: 'Huella',
+    obs: 'Observaciones', huella: 'Huella', borrador: 'Borrador',
   },
   EN: {
     locale: 'en-IE', factura: 'Invoice', rectificativa: 'Corrective invoice', num: 'No.', fecha: 'Date', vence: 'Due date',
     periodo: 'Period', cliente: 'Bill to', nif: 'Tax ID', desc: 'Description', cant: 'Qty', precio: 'Price', dto: 'Disc.',
     igic: 'IGIC', importe: 'Amount', base: 'Taxable base', sobre: 'on', irpf: 'IRPF withholding', total: 'Total',
     pago: 'Payment', transferencia: 'Bank transfer', motivo: 'Reason',
-    obs: 'Notes', huella: 'Hash',
+    obs: 'Notes', huella: 'Hash', borrador: 'Draft',
   },
 };
 
@@ -30,12 +30,7 @@ export async function vistaFactura(app, id) {
   const pintar = () => montar(hoja, ...documento(f, TXT[idioma.value], app.e?.logo_url));
   pintar();
 
-  const pdf = () => {
-    const titulo = document.title;
-    document.title = `${f.num} ${f.cliente?.nombre || ''}`.trim();   // nombre de archivo sugerido al guardar
-    addEventListener('afterprint', () => { document.title = titulo; }, { once: true });
-    print();
-  };
+  const pdf = () => imprimir(`${f.num} ${f.cliente?.nombre || ''}`);
   const e = f.emisor || {};
   const faltan = ['nif', 'direccion'].filter(k => !e[k]).length || !(e.titular || e.marca);
 
@@ -49,7 +44,16 @@ export async function vistaFactura(app, id) {
     hoja);
 }
 
-function documento(f, t, logo) {
+// Abre la impresión del navegador; el título es el nombre de archivo que sugiere al «Guardar como PDF».
+export function imprimir(nombre) {
+  const titulo = document.title;
+  document.title = nombre.trim();
+  addEventListener('afterprint', () => { document.title = titulo; }, { once: true });
+  print();
+}
+
+// Contenido de la hoja. f: factura emitida, o borrador (f.borrador = true, sin número ni huella).
+export function documento(f, t, logo) {
   const eur = n => (Number(n) || 0).toLocaleString(t.locale, { style: 'currency', currency: 'EUR' });
   const num = n => (Number(n) || 0).toLocaleString(t.locale, { maximumFractionDigits: 3 });
   const pct = n => `${num(n)} %`;
@@ -62,6 +66,7 @@ function documento(f, t, logo) {
   const desglose = (f.igic_desglose || []).filter(d => Number(d.base) || Number(d.cuota));
 
   return [
+    f.borrador ? h('div.df-marca-agua', { 'aria-hidden': 'true' }, t.borrador) : null,
     h('header.df-cab',
       h('div.df-emisor',
         logo ? h('img.df-logo', { src: logo, alt: e.marca || '' }) : null,
@@ -70,7 +75,7 @@ function documento(f, t, logo) {
           juntar(e.cp, e.localidad), e.provincia, juntar(e.email, e.telefono && `· ${e.telefono}`), e.web)),
       h('div.df-titulo',
         h('h2', f.tipo_doc === 'RECTIFICATIVA' ? t.rectificativa : t.factura),
-        h('dl', h('dt', t.num), h('dd', f.num), h('dt', t.fecha), h('dd', dia(f.fecha)),
+        h('dl', h('dt', t.num), h('dd', f.num || t.borrador), h('dt', t.fecha), h('dd', dia(f.fecha)),
           f.vencimiento ? [h('dt', t.vence), h('dd', dia(f.vencimiento))] : null,
           f.periodo_desde ? [h('dt', t.periodo), h('dd', `${dia(f.periodo_desde)} – ${dia(f.periodo_hasta)}`)] : null))),
     h('section.df-cliente',
@@ -94,6 +99,6 @@ function documento(f, t, logo) {
     e.iban || e.pago ? h('section.df-pago', h('div.df-etiqueta', t.pago),
       bloque(e.pago || t.transferencia, e.iban && `IBAN: ${e.iban}`, e.bic && `BIC: ${e.bic}`)) : null,
     f.observaciones ? h('p.df-nota', h('strong', `${t.obs}: `), f.observaciones) : null,
-    h('footer.df-pie', `${t.huella}: ${f.huella || ''}`),
+    f.huella ? h('footer.df-pie', `${t.huella}: ${f.huella}`) : null,
   ];
 }

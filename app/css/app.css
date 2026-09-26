@@ -197,3 +197,24 @@ input[type=checkbox], input[type=radio] { width: 20px; min-height: 20px; height:
 }
 .logo-campo { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .logo-previa { max-width: 180px; max-height: 64px; object-fit: contain; background: #fff; border: 1px solid var(--borde); border-radius: 8px; padding: 6px; }
+
+/* ---------- Borrador de factura ---------- */
+.lineas-editor { display: flex; flex-direction: column; gap: 8px; }
+.linea-ed { display: grid; grid-template-columns: minmax(160px, 1fr) 70px 56px 90px 64px 64px 88px 28px; gap: 6px; align-items: center; }
+.linea-ed label { display: block; margin: 0; min-width: 0; }
+.linea-ed .rotulo { display: none; font-size: .72rem; font-weight: 600; color: var(--suave); margin-bottom: 2px; }
+.linea-ed input { min-height: 38px; padding: 6px 8px; width: 100%; min-width: 0; }
+.linea-ed.cabecera span { font-size: .75rem; font-weight: 600; color: var(--suave); }
+.linea-ed .importe { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.linea-ed .quitar { padding: 4px; min-height: 0; text-decoration: none; color: var(--suave); }
+.lineas-editor > .btn { align-self: flex-start; }
+@media (max-width: 720px) {
+  .linea-ed { grid-template-columns: 1fr 1fr 1fr 28px; grid-template-areas: "desc desc desc x" "cant ud pvp ." "dto igic imp ."; padding-bottom: 10px; border-bottom: 1px solid var(--borde); }
+  .linea-ed.cabecera { display: none; }
+  .linea-ed .rotulo { display: block; }
+  .c-descripcion { grid-area: desc; } .c-cantidad { grid-area: cant; } .c-unidad { grid-area: ud; } .c-pvp { grid-area: pvp; }
+  .c-dto { grid-area: dto; } .c-igic { grid-area: igic; } .linea-ed .importe { grid-area: imp; align-self: end; padding-bottom: 8px; } .linea-ed .quitar { grid-area: x; align-self: end; padding-bottom: 10px; }
+}
+.doc-factura { position: relative; }
+.df-marca-agua { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none;
+  font-size: 7rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: rgb(31 58 46 / .08); transform: rotate(-30deg); }
