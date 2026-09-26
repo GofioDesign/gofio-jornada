@@ -150,3 +150,43 @@ input[type=checkbox], input[type=radio] { width: 20px; min-height: 20px; height:
 .aviso.ok { background: var(--ok); color: #fff; } .aviso.error { background: var(--peligro); color: #fff; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 @media (max-width: 420px) { .dos { grid-template-columns: 1fr; } .linea-tiempo li { grid-template-columns: 96px 1fr; } .linea-tiempo .dur { grid-column: 2; } }
+
+/* ---------- Factura (detalle y PDF) ---------- */
+.tabla tr.enlace { cursor: pointer; } .tabla tr.enlace:hover td { background: var(--fondo); }
+.acciones { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.acciones select { width: auto; }
+.aviso-fijo { margin: 0; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--pausa); color: var(--texto); background: var(--superficie); font-size: .92rem; }
+/* La hoja siempre es papel blanco, también en modo oscuro */
+.doc-factura { --t: #1d231f; --s: #5f6b63; --b: #dcd6ca; background: #fff; color: var(--t); border-radius: 6px; box-shadow: var(--sombra);
+  padding: 32px; font-size: .9rem; line-height: 1.4; display: flex; flex-direction: column; gap: 22px; overflow-x: auto; }
+.df-cab { display: flex; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+.df-marca { display: block; font-size: 1.25rem; color: #1f3a2e; margin-bottom: 4px; }
+.df-emisor div, .df-cliente div, .df-pago div { color: var(--s); }
+.df-titulo { text-align: right; }
+.df-titulo h2 { margin: 0 0 6px; font-size: 1.4rem; text-transform: uppercase; letter-spacing: .04em; color: #1f3a2e; }
+.df-titulo dl { display: grid; grid-template-columns: auto auto; gap: 2px 12px; margin: 0; justify-content: end; }
+.df-titulo dt { color: var(--s); } .df-titulo dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.df-etiqueta { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--s); margin-bottom: 4px; }
+.df-cliente { border-top: 2px solid #1f3a2e; padding-top: 12px; }
+.df-lineas, .df-totales { border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.df-lineas { width: 100%; }
+.df-lineas th { font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; color: var(--s); text-align: left; padding: 6px; border-bottom: 1px solid var(--t); }
+.df-lineas td { padding: 8px 6px; border-bottom: 1px solid var(--b); vertical-align: top; }
+.df-lineas .n { text-align: right; white-space: nowrap; }
+.df-totales { margin-left: auto; min-width: 280px; }
+.df-totales th { text-align: left; font-weight: 400; color: var(--s); padding: 4px 16px 4px 0; }
+.df-totales td { text-align: right; padding: 4px 0; white-space: nowrap; }
+.df-totales .df-total th, .df-totales .df-total td { border-top: 2px solid var(--t); padding-top: 8px; font-size: 1.1rem; font-weight: 700; color: var(--t); }
+.df-nota { margin: 0; }
+.df-pie { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--b); font-size: .7rem; color: var(--s); word-break: break-all; }
+@media (max-width: 560px) { .doc-factura { padding: 18px; } .df-titulo { text-align: left; } .df-titulo dl { justify-content: start; } }
+
+@media print {
+  @page { size: A4; margin: 14mm; }
+  html, body { background: #fff !important; }
+  .barra, .menu, .aviso, .no-imprimir { display: none !important; }
+  .vista { max-width: none; padding: 0; }
+  .doc-factura { box-shadow: none; border-radius: 0; padding: 0; font-size: 10pt; overflow: visible; min-height: calc(297mm - 28mm - 2px); }
+  .df-lineas tr { break-inside: avoid; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}

@@ -97,6 +97,12 @@ const supa = {
   async horasPendientes(org, cli, desde, hasta) { const c = await cliente(); return ok(await c.rpc('horas_pendientes', { p_org: org, p_cliente: cli, p_desde: desde, p_hasta: hasta })); },
   async productos(org) { const c = await cliente(); return ok(await c.from('productos').select('*').eq('org_id', org).eq('activo', true).order('codigo')); },
   async facturas(org) { const c = await cliente(); return ok(await c.from('v_facturas').select('*').eq('org_id', org).order('fecha', { ascending: false }).order('num', { ascending: false }).limit(200)); },
+  async factura(org, id) {
+    const c = await cliente();
+    const [f, l] = await Promise.all([c.from('v_facturas').select('*').eq('org_id', org).eq('id', id).maybeSingle(),
+      c.from('facturas_lineas').select('*').eq('factura_id', id).order('linea')]);
+    return ok(f) && { ...f.data, lineas: ok(l) };
+  },
   async emitirFactura(org, d) {
     const c = await cliente();
     return ok(await c.rpc('emitir_factura', { p_org: org, p_cliente: d.cliente_id, p_fecha: d.fecha, p_lineas: d.lineas, p_irpf_pct: d.irpf_pct ?? null,
@@ -237,12 +243,21 @@ const demo = {
   },
   async productos() { return [{ id: 'p1', codigo: '1HTEC', descripcion_factura: 'Hora de trabajo técnico', unidad: 'h', pvp: 35, igic_pct: 7 }, { id: 'p2', codigo: 'TRANS', descripcion_factura: 'Desplazamiento', unidad: 'ud', pvp: 25, igic_pct: 7 }]; },
   async facturas(org) { return db().facturas.filter(f => f.org_id === org); },
+  async factura(org, id) { return db().facturas.find(f => f.org_id === org && f.id === id) || null; },
   async emitirFactura(org, x) {
     const d = db(); const n = d.facturas.length + 1;
-    const base = x.lineas.reduce((s, l) => s + Math.round(l.cantidad * l.pvp * (1 - (l.dto || 0) / 100) * 100), 0) / 100;
-    const igic = Math.round(x.lineas.reduce((s, l) => s + l.cantidad * l.pvp * (1 - (l.dto || 0) / 100) * (l.igic || 0), 0)) / 100;
+    const cent = l => Math.round(l.cantidad * l.pvp * (1 - (l.dto || 0) / 100) * 100);
+    const base = x.lineas.reduce((s, l) => s + cent(l), 0) / 100;
+    const tipos = {}; x.lineas.forEach(l => { tipos[l.igic || 0] = (tipos[l.igic || 0] || 0) + cent(l); });
+    const igic_desglose = Object.entries(tipos).map(([pct, b]) => ({ pct: Number(pct), base: b / 100, cuota: Math.round(b * pct / 100) / 100 }));
+    const igic = Math.round(igic_desglose.reduce((s, g) => s + g.cuota * 100, 0)) / 100;
     const irpf = Math.round(base * (x.irpf_pct || 0)) / 100;
-    const f = { id: uid(), org_id: org, num: 'DEMO-' + String(n).padStart(4, '0'), fecha: x.fecha, cliente: { nombre: d.clientes.find(c => c.id === x.cliente_id)?.nombre }, base, igic, irpf, total: Math.round((base + igic - irpf) * 100) / 100, estado_cobro: 'PENDIENTE' };
+    const o = d.orgs.find(y => y.id === org), c = d.clientes.find(y => y.id === x.cliente_id) || {};
+    const lineas = x.lineas.map((l, i) => ({ linea: i + 1, codigo: l.codigo, descripcion: l.descripcion, cantidad: l.cantidad, unidad: l.unidad, pvp_ud: l.pvp,
+      dto_pct: l.dto || 0, base: cent(l) / 100, igic_pct: l.igic || 0, igic: Math.round(cent(l) * (l.igic || 0) / 100) / 100 }));
+    const f = { id: uid(), org_id: org, num: 'DEMO-' + String(n).padStart(4, '0'), tipo_doc: 'FACTURA', fecha: x.fecha, vencimiento: new Date(Date.parse(x.fecha) + 30 * 864e5).toISOString().slice(0, 10),
+      periodo_desde: x.desde || null, periodo_hasta: x.hasta || null, cliente: { ...c }, emisor: { marca: o?.nombre, titular: o?.titular, nif: o?.nif, direccion: o?.direccion, cp: o?.cp, localidad: o?.localidad, provincia: o?.provincia, email: o?.email, telefono: o?.telefono, web: o?.web, iban: o?.iban, bic: o?.bic, pago: o?.config?.medio_pago_texto },
+      base, igic, igic_desglose, irpf_pct: x.irpf_pct || 0, irpf, total: Math.round((base + igic - irpf) * 100) / 100, lineas, huella: 'demo', estado_cobro: 'PENDIENTE' };
     d.facturas.unshift(f);
     (x.horas || []).forEach(h => d.facturadas.push([x.cliente_id, h.user_id, h.dia, h.tipo].join('|')));
     guardar(d); return f;

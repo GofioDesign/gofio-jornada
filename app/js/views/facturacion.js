@@ -1,11 +1,14 @@
-// Módulo FACTURACIÓN (solo testers). De momento: listado de facturas y
+// Módulo FACTURACIÓN (solo testers). De momento: listado de facturas, detalle con PDF y
 // "facturar horas": convierte la jornada registrada para un cliente en líneas de factura.
 import { api } from '../api.js';
 import { h, montar, accion, aviso, eur, fecha, hoyISO, sumarDias } from '../ui.js';
 import { fmtMin } from '../lib/jornada.js';
+import { vistaFactura } from './factura.js';
 
-export async function vistaFacturacion(app, clienteId) {
-  return clienteId ? facturarHoras(app, clienteId) : listado(app);
+// #/facturacion · #/facturacion/<clienteId> · #/facturacion/factura/<facturaId>
+export async function vistaFacturacion(app, id, sub) {
+  if (id === 'factura') return vistaFactura(app, sub);
+  return id ? facturarHoras(app, id) : listado(app);
 }
 
 async function listado(app) {
@@ -17,9 +20,10 @@ async function listado(app) {
     const q = buscar.value.toLowerCase();
     const r = facturas.filter(f => (!q || (f.num + ' ' + (f.cliente?.nombre || '')).toLowerCase().includes(q)) && (!estado.value || f.estado_cobro === estado.value));
     const pend = r.reduce((s, f) => s + (Number(f.pendiente) || 0), 0);
+    const abrir = f => { location.hash = '#/facturacion/factura/' + f.id; };
     tabla.replaceChildren(r.length ? h('table.tabla',
       h('thead', h('tr', h('th', 'Nº'), h('th', 'Fecha'), h('th', 'Cliente'), h('th.num', 'Total'), h('th', 'Estado'))),
-      h('tbody', r.map(f => h('tr', h('td', f.num), h('td', fecha(f.fecha)), h('td', f.cliente?.nombre || ''), h('td.num', eur(f.total)), h('td', h('span.etiqueta.' + String(f.estado_cobro).toLowerCase(), f.estado_cobro))))),
+      h('tbody', r.map(f => h('tr.enlace', { role: 'link', tabIndex: 0, onclick: () => abrir(f), onkeydown: e => { if (e.key === 'Enter') abrir(f); } }, h('td', f.num), h('td', fecha(f.fecha)), h('td', f.cliente?.nombre || ''), h('td.num', eur(f.total)), h('td', h('span.etiqueta.' + String(f.estado_cobro).toLowerCase(), f.estado_cobro))))),
       h('tfoot', h('tr', h('td', { colSpan: 3 }, `${r.length} facturas · pendiente de cobro`), h('td.num', eur(pend)), h('td')))) : h('p.vacio', 'No hay facturas con ese filtro.'));
   };
   [buscar, estado].forEach(x => x.addEventListener('input', pintar)); pintar();
@@ -76,7 +80,7 @@ async function facturarHoras(app, clienteId) {
             if (!confirm(`¿Emitir la factura a ${c.nombre}? Una factura emitida no se puede borrar.`)) return;
             const f = await api.emitirFactura(app.org, { cliente_id: c.id, fecha: hoy, lineas: ls, desde: desde.value, hasta: hasta.value,
               horas: horas.filter(x => x._sel).map(x => ({ user_id: x.user_id, dia: x.dia, tipo: x.tipo, minutos: x.minutos, km: x.km })) });
-            aviso(`Factura ${f.num} emitida: ${eur(f.total)}`, 'ok'); location.hash = '#/facturacion';
+            aviso(`Factura ${f.num} emitida: ${eur(f.total)}`, 'ok'); location.hash = '#/facturacion/factura/' + f.id;
           }),
         }, 'Emitir factura')) : null);
   };

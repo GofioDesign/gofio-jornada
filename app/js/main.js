@@ -56,13 +56,13 @@ async function router() {
     if (!app.empresas.length) await cargarEmpresas();
     if (!app.e) { $menu.hidden = true; return montar($vista, await vistaAlta(app)); }
     pintarCabecera(); pintarMenu(ruta);
-    const [, seccion, id] = ruta.replace(/^#\/?/, '#/').split('/');
+    const [, seccion, id, sub] = ruta.replace(/^#\/?/, '#/').split('/');
     let v;
     switch (seccion) {
       case 'clientes': v = id ? await vistaCliente(app, id) : await vistaClientes(app); break;
       case 'equipo': v = puedeVerEquipo(app.rol) ? await vistaEquipo(app) : null; break;
       case 'ajustes': v = await vistaAjustes(app, id); break;
-      case 'facturacion': v = app.facturacion ? await vistaFacturacion(app, id) : null; break;
+      case 'facturacion': v = app.facturacion ? await vistaFacturacion(app, id, sub) : null; break;
       default: v = await vistaJornada(app);
     }
     montar($vista, v || h('p.vacio', 'No tienes acceso a esta sección.'));

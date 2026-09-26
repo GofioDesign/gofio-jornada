@@ -106,7 +106,9 @@ function empresa(app) {
       accion(form.querySelector('button'), async () => {
         await api.guardarEmpresa(app.org, { nombre: v('nombre'), titular: v('titular'), nif: v('nif'), direccion: v('direccion'), cp: v('cp'), localidad: v('localidad'),
           provincia: v('provincia'), email: v('email'), telefono: v('telefono'),
-          config: { ...cfg, jornada_horas_dia: Number(horas.value) || 8, jornada_geolocalizar: geo.checked } });
+          ...(app.facturacion ? { web: v('web'), iban: v('iban'), bic: v('bic') } : {}),
+          config: { ...cfg, jornada_horas_dia: Number(horas.value) || 8, jornada_geolocalizar: geo.checked,
+                    ...(app.facturacion ? { medio_pago_texto: form.querySelector('#e-pago').value.trim() || null } : {}) } });
         aviso('Datos guardados', 'ok'); await app.recargar();
       });
     },
@@ -114,6 +116,14 @@ function empresa(app) {
     campo('nombre', 'Nombre comercial', { required: true }), campo('titular', 'Titular fiscal'), campo('nif', 'NIF'),
     campo('direccion', 'Dirección'), h('div.dos', h('div', campo('cp', 'CP')), h('div', campo('localidad', 'Localidad'))), campo('provincia', 'Provincia'),
     h('div.dos', h('div', campo('email', 'Email', { type: 'email' })), h('div', campo('telefono', 'Teléfono'))),
+    app.facturacion ? [
+      h('h3', 'Datos para las facturas'),
+      campo('web', 'Web'),
+      h('div.dos', h('div', campo('iban', 'IBAN')), h('div', campo('bic', 'BIC'))),
+      h('label', { for: 'e-pago' }, 'Forma de pago (texto que sale en la factura)'),
+      h('input', { id: 'e-pago', value: cfg.medio_pago_texto ?? '', placeholder: 'Transferencia bancaria' }),
+      h('p.ayuda', 'Estos datos se copian en cada factura al emitirla. Las ya emitidas no cambian.'),
+    ] : null,
     h('h3', 'Jornada'),
     h('label', { for: 'e-horas' }, 'Horas de jornada al día (para avisar de excesos)'), horas,
     h('label.check', geo, ' Guardar la ubicación GPS al fichar'),

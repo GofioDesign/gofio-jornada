@@ -1,8 +1,8 @@
 // Service worker: la app se abre al instante y funciona sin cobertura (los datos se piden al servidor al fichar).
-const CACHE = 'gofio-jornada-v0.1.0';
+const CACHE = 'gofio-jornada-v0.1.1';
 const APP = ['./', 'index.html', 'config.js', 'css/app.css', 'manifest.webmanifest', 'icons/icono.svg', 'icons/icono-192.png',
   'js/main.js', 'js/api.js', 'js/ui.js', 'js/lib/jornada.js', 'js/lib/mapas.js', 'js/lib/csv.js',
-  'js/views/acceso.js', 'js/views/jornada.js', 'js/views/clientes.js', 'js/views/equipo.js', 'js/views/ajustes.js', 'js/views/facturacion.js'];
+  'js/views/acceso.js', 'js/views/jornada.js', 'js/views/clientes.js', 'js/views/equipo.js', 'js/views/ajustes.js', 'js/views/facturacion.js', 'js/views/factura.js'];
 
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(APP)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => {
