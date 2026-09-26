@@ -27,7 +27,7 @@ export async function vistaFactura(app, id) {
   const idioma = h('select', { 'aria-label': 'Idioma del PDF', onchange: () => pintar() },
     h('option', { value: 'ES' }, 'Español'), h('option', { value: 'EN' }, 'English'));
   idioma.value = f.cliente?.idioma === 'EN' ? 'EN' : 'ES';
-  const pintar = () => montar(hoja, ...documento(f, TXT[idioma.value]));
+  const pintar = () => montar(hoja, ...documento(f, TXT[idioma.value], app.e?.logo_url));
   pintar();
 
   const pdf = () => {
@@ -49,7 +49,7 @@ export async function vistaFactura(app, id) {
     hoja);
 }
 
-function documento(f, t) {
+function documento(f, t, logo) {
   const eur = n => (Number(n) || 0).toLocaleString(t.locale, { style: 'currency', currency: 'EUR' });
   const num = n => (Number(n) || 0).toLocaleString(t.locale, { maximumFractionDigits: 3 });
   const pct = n => `${num(n)} %`;
@@ -64,6 +64,7 @@ function documento(f, t) {
   return [
     h('header.df-cab',
       h('div.df-emisor',
+        logo ? h('img.df-logo', { src: logo, alt: e.marca || '' }) : null,
         h('strong.df-marca', e.marca || ''),
         bloque(e.titular && e.titular !== e.marca ? e.titular : null, e.nif && `${t.nif}: ${e.nif}`, e.direccion,
           juntar(e.cp, e.localidad), e.provincia, juntar(e.email, e.telefono && `· ${e.telefono}`), e.web)),

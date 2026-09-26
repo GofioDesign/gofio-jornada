@@ -160,6 +160,7 @@ input[type=checkbox], input[type=radio] { width: 20px; min-height: 20px; height:
 .doc-factura { --t: #1d231f; --s: #5f6b63; --b: #dcd6ca; background: #fff; color: var(--t); border-radius: 6px; box-shadow: var(--sombra);
   padding: 32px; font-size: .9rem; line-height: 1.4; display: flex; flex-direction: column; gap: 22px; overflow-x: auto; }
 .df-cab { display: flex; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+.df-logo { display: block; max-width: 60mm; max-height: 22mm; object-fit: contain; object-position: left; margin-bottom: 8px; }
 .df-marca { display: block; font-size: 1.25rem; color: #1f3a2e; margin-bottom: 4px; }
 .df-emisor div, .df-cliente div, .df-pago div { color: var(--s); }
 .df-titulo { text-align: right; }
@@ -182,11 +183,17 @@ input[type=checkbox], input[type=radio] { width: 20px; min-height: 20px; height:
 @media (max-width: 560px) { .doc-factura { padding: 18px; } .df-titulo { text-align: left; } .df-titulo dl { justify-content: start; } }
 
 @media print {
-  @page { size: A4; margin: 14mm; }
-  html, body { background: #fff !important; }
+  /* Sin márgenes de página: la hoja blanca cubre todo el A4 (así no se imprime el fondo de la app
+     ni la cabecera/pie del navegador). El margen lo pone el relleno de la hoja. */
+  @page { size: A4; margin: 0; }
+  html, body { background: #fff !important; color-scheme: light; }
   .barra, .menu, .aviso, .no-imprimir { display: none !important; }
-  .vista { max-width: none; padding: 0; }
-  .doc-factura { box-shadow: none; border-radius: 0; padding: 0; font-size: 10pt; overflow: visible; min-height: calc(297mm - 28mm - 2px); }
-  .df-lineas tr { break-inside: avoid; }
-  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .vista { max-width: none; padding: 0 !important; margin: 0; }
+  .vista > .pila { gap: 0; }
+  .doc-factura { box-shadow: none; border-radius: 0; width: 210mm; min-height: 296mm; padding: 14mm;
+    font-size: 10pt; overflow: visible; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+  .df-lineas tr, .df-totales, .df-pago { break-inside: avoid; }
+  .doc-factura * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+.logo-campo { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.logo-previa { max-width: 180px; max-height: 64px; object-fit: contain; background: #fff; border: 1px solid var(--borde); border-radius: 8px; padding: 6px; }

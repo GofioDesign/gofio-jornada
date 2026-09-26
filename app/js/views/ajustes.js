@@ -99,14 +99,22 @@ function empresa(app) {
   const campo = (k, t, attrs = {}) => [h('label', { for: 'e-' + k }, t), h('input', { id: 'e-' + k, value: e[k] ?? '', ...attrs })];
   const horas = h('input', { id: 'e-horas', type: 'number', min: 1, max: 12, step: 0.5, value: cfg.jornada_horas_dia ?? 8 });
   const geo = h('input', { id: 'e-geo', type: 'checkbox', checked: cfg.jornada_geolocalizar !== false });
+  // Logo: se reduce en el navegador y se guarda como imagen dentro de la empresa (logo_url).
+  let logo = e.logo_url || null;
+  const vistaLogo = h('img.logo-previa', { alt: 'Logo' });
+  const pintarLogo = () => { vistaLogo.hidden = !logo; if (logo) vistaLogo.src = logo; quitarLogo.style.display = logo ? '' : 'none'; };
+  const quitarLogo = h('button.btn.enlace', { type: 'button', onclick: () => { logo = null; pintarLogo(); } }, 'Quitar logo');
+  const subirLogo = h('input', { id: 'e-logo', type: 'file', accept: 'image/png,image/jpeg,image/webp,image/svg+xml',
+    onchange: ev => accion(null, async () => { const f = ev.target.files[0]; if (f) { logo = await reducirImagen(f); pintarLogo(); } }) });
+  pintarLogo();
   const form = h('form.formulario', {
     onsubmit: ev => {
       ev.preventDefault();
       const v = k => form.querySelector('#e-' + k).value.trim() || null;
-      accion(form.querySelector('button'), async () => {
+      accion(form.querySelector('button[type=submit]'), async () => {
         await api.guardarEmpresa(app.org, { nombre: v('nombre'), titular: v('titular'), nif: v('nif'), direccion: v('direccion'), cp: v('cp'), localidad: v('localidad'),
           provincia: v('provincia'), email: v('email'), telefono: v('telefono'),
-          ...(app.facturacion ? { web: v('web'), iban: v('iban'), bic: v('bic') } : {}),
+          ...(app.facturacion ? { web: v('web'), iban: v('iban'), bic: v('bic'), logo_url: logo } : {}),
           config: { ...cfg, jornada_horas_dia: Number(horas.value) || 8, jornada_geolocalizar: geo.checked,
                     ...(app.facturacion ? { medio_pago_texto: form.querySelector('#e-pago').value.trim() || null,
                       igic_defecto: Number(form.querySelector('#e-igic').value) || 0,
@@ -120,6 +128,8 @@ function empresa(app) {
     h('div.dos', h('div', campo('email', 'Email', { type: 'email' })), h('div', campo('telefono', 'Teléfono'))),
     app.facturacion ? [
       h('h3', 'Datos para las facturas'),
+      h('label', { for: 'e-logo' }, 'Logo (sale en el PDF de las facturas)'),
+      h('div.logo-campo', vistaLogo, subirLogo, quitarLogo),
       campo('web', 'Web'),
       h('div.dos', h('div', campo('iban', 'IBAN')), h('div', campo('bic', 'BIC'))),
       h('label', { for: 'e-pago' }, 'Forma de pago (texto que sale en la factura)'),
@@ -128,7 +138,7 @@ function empresa(app) {
       h('input', { id: 'e-igic', type: 'number', min: 0, max: 20, step: 0.5, value: cfg.igic_defecto ?? 7 }),
       h('label', { for: 'e-exencion' }, 'Aclaración para IGIC 0 % (sale en la factura si alguna línea va al 0 %)'),
       h('textarea', { id: 'e-exencion', rows: 2, placeholder: 'Motivo de la exención que te indique tu gestoría', value: cfg.texto_exencion_igic ?? '' }),
-      h('p.ayuda', 'Estos datos se copian en cada factura al emitirla. Las ya emitidas no cambian.'),
+      h('p.ayuda', 'Estos datos se copian en cada factura al emitirla: las ya emitidas no cambian. El logo es la excepción: el PDF usa siempre el logo actual.'),
     ] : null,
     h('h3', 'Jornada'),
     h('label', { for: 'e-horas' }, 'Horas de jornada al día (para avisar de excesos)'), horas,
@@ -163,4 +173,19 @@ function importar(app) {
     h('p.ayuda', 'Desde tu hoja de Google: abre la pestaña CLIENTES ▸ Archivo ▸ Descargar ▸ CSV. Después elige el archivo aquí.'),
     input, resultado,
     h('button.btn.enlace', { onclick: () => descargar('plantilla-clientes.csv', toCSV([], ['ID_CLIENTE', 'NOMBRE', 'TIPO', 'DIRECCION', 'CP', 'LOCALIDAD', 'MUNICIPIO', 'PROVINCIA', 'PAIS', 'EMAIL', 'TELEFONO', 'NOTAS'])) }, 'Descargar plantilla vacía'));
+}
+
+// Reduce una imagen a 600×240 px como máximo y la devuelve como data URL (PNG para conservar la transparencia).
+async function reducirImagen(archivo) {
+  const url = URL.createObjectURL(archivo);
+  try {
+    const img = await new Promise((ok, mal) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => mal(new Error('No se ha podido leer la imagen')); i.src = url; });
+    const k = Math.min(1, 600 / (img.naturalWidth || 600), 240 / (img.naturalHeight || 240));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round((img.naturalWidth || 600) * k)); c.height = Math.max(1, Math.round((img.naturalHeight || 240) * k));
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    const datos = c.toDataURL('image/png');
+    if (datos.length > 500_000) throw new Error('El logo es demasiado pesado. Prueba con una imagen más sencilla.');
+    return datos;
+  } finally { URL.revokeObjectURL(url); }
 }
