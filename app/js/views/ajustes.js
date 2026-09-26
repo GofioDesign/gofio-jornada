@@ -108,7 +108,9 @@ function empresa(app) {
           provincia: v('provincia'), email: v('email'), telefono: v('telefono'),
           ...(app.facturacion ? { web: v('web'), iban: v('iban'), bic: v('bic') } : {}),
           config: { ...cfg, jornada_horas_dia: Number(horas.value) || 8, jornada_geolocalizar: geo.checked,
-                    ...(app.facturacion ? { medio_pago_texto: form.querySelector('#e-pago').value.trim() || null } : {}) } });
+                    ...(app.facturacion ? { medio_pago_texto: form.querySelector('#e-pago').value.trim() || null,
+                      igic_defecto: Number(form.querySelector('#e-igic').value) || 0,
+                      texto_exencion_igic: form.querySelector('#e-exencion').value.trim() || null } : {}) } });
         aviso('Datos guardados', 'ok'); await app.recargar();
       });
     },
@@ -122,6 +124,10 @@ function empresa(app) {
       h('div.dos', h('div', campo('iban', 'IBAN')), h('div', campo('bic', 'BIC'))),
       h('label', { for: 'e-pago' }, 'Forma de pago (texto que sale en la factura)'),
       h('input', { id: 'e-pago', value: cfg.medio_pago_texto ?? '', placeholder: 'Transferencia bancaria' }),
+      h('label', { for: 'e-igic' }, 'IGIC por defecto (%)'),
+      h('input', { id: 'e-igic', type: 'number', min: 0, max: 20, step: 0.5, value: cfg.igic_defecto ?? 7 }),
+      h('label', { for: 'e-exencion' }, 'Aclaración para IGIC 0 % (sale en la factura si alguna línea va al 0 %)'),
+      h('textarea', { id: 'e-exencion', rows: 2, placeholder: 'Motivo de la exención que te indique tu gestoría', value: cfg.texto_exencion_igic ?? '' }),
       h('p.ayuda', 'Estos datos se copian en cada factura al emitirla. Las ya emitidas no cambian.'),
     ] : null,
     h('h3', 'Jornada'),

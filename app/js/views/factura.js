@@ -89,6 +89,7 @@ function documento(f, t) {
       desglose.map(d => h('tr', h('th', `${t.igic} ${pct(d.pct)} ${t.sobre} ${eur(d.base)}`), h('td', eur(d.cuota)))),
       Number(f.irpf) ? h('tr', h('th', `${t.irpf} ${pct(f.irpf_pct)}`), h('td', '−' + eur(f.irpf))) : null,
       h('tr.df-total', h('th', t.total), h('td', eur(f.total))))),
+    e.nota_igic && desglose.some(d => Number(d.pct) === 0) ? h('p.df-nota', e.nota_igic) : null,
     e.iban || e.pago ? h('section.df-pago', h('div.df-etiqueta', t.pago),
       bloque(e.pago || t.transferencia, e.iban && `IBAN: ${e.iban}`, e.bic && `BIC: ${e.bic}`)) : null,
     f.observaciones ? h('p.df-nota', h('strong', `${t.obs}: `), f.observaciones) : null,

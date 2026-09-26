@@ -256,7 +256,8 @@ const demo = {
     const lineas = x.lineas.map((l, i) => ({ linea: i + 1, codigo: l.codigo, descripcion: l.descripcion, cantidad: l.cantidad, unidad: l.unidad, pvp_ud: l.pvp,
       dto_pct: l.dto || 0, base: cent(l) / 100, igic_pct: l.igic || 0, igic: Math.round(cent(l) * (l.igic || 0) / 100) / 100 }));
     const f = { id: uid(), org_id: org, num: 'DEMO-' + String(n).padStart(4, '0'), tipo_doc: 'FACTURA', fecha: x.fecha, vencimiento: new Date(Date.parse(x.fecha) + 30 * 864e5).toISOString().slice(0, 10),
-      periodo_desde: x.desde || null, periodo_hasta: x.hasta || null, cliente: { ...c }, emisor: { marca: o?.nombre, titular: o?.titular, nif: o?.nif, direccion: o?.direccion, cp: o?.cp, localidad: o?.localidad, provincia: o?.provincia, email: o?.email, telefono: o?.telefono, web: o?.web, iban: o?.iban, bic: o?.bic, pago: o?.config?.medio_pago_texto },
+      periodo_desde: x.desde || null, periodo_hasta: x.hasta || null, cliente: { ...c }, emisor: { marca: o?.nombre, titular: o?.titular, nif: o?.nif, direccion: o?.direccion, cp: o?.cp, localidad: o?.localidad, provincia: o?.provincia, email: o?.email, telefono: o?.telefono, web: o?.web, iban: o?.iban, bic: o?.bic, pago: o?.config?.medio_pago_texto,
+        ...(tipos[0] !== undefined && o?.config?.texto_exencion_igic ? { nota_igic: o.config.texto_exencion_igic } : {}) },
       base, igic, igic_desglose, irpf_pct: x.irpf_pct || 0, irpf, total: Math.round((base + igic - irpf) * 100) / 100, lineas, huella: 'demo', estado_cobro: 'PENDIENTE' };
     d.facturas.unshift(f);
     (x.horas || []).forEach(h => d.facturadas.push([x.cliente_id, h.user_id, h.dia, h.tipo].join('|')));

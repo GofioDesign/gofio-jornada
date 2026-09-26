@@ -194,6 +194,17 @@ do $$ declare h jsonb; f facturas; begin
     perform public.emitir_factura((select org from ctx), (select id from clientes where codigo = 'B00000000'), '2026-01-01', '[{"descripcion":"x","cantidad":1,"pvp":1,"igic":7}]');
     raise exception 'DEBÍA FALLAR fecha anterior';
   exception when others then if sqlerrm not like '%anterior%' then raise; end if; end;
+  -- la factura al 7 % no lleva aclaración de IGIC 0 %
+  if f.emisor ? 'nota_igic' then raise exception 'nota IGIC en factura sin 0 %%'; end if;
+end $$;
+
+-- IGIC 0 %: la aclaración de Ajustes se congela en la factura
+update organizaciones set config = config || '{"texto_exencion_igic":"Operación exenta de IGIC (prueba)"}' where id = (select org from ctx);
+do $$ declare f facturas; begin
+  f := public.emitir_factura((select org from ctx), (select id from clientes where codigo = 'B00000000'), '2026-09-24',
+        '[{"descripcion":"Servicio exento","cantidad":1,"pvp":100,"igic":0}]', 0);
+  if f.igic <> 0 or f.emisor->>'nota_igic' is distinct from 'Operación exenta de IGIC (prueba)' then
+    raise exception 'nota IGIC 0 %%: % %', f.igic, f.emisor; end if;
 end $$;
 
 select pg_temp.debe_fallar($$update facturas set total = 1$$, 'rectificativa');
