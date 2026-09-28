@@ -31,7 +31,7 @@ export async function vistaProductos(app) {
   [buscar, familia, estado].forEach(x => x.addEventListener('input', pintar)); pintar();
   return h('section.pila', h('div.cab', h('div', h('a.volver', { href: '#/facturacion' }, '‹ Facturación'), h('h1', 'Productos')), h('div.acciones',
     puedeGestionar(app.rol) ? h('button.btn', { onclick: () => editarMargenes(app, familias) }, 'Márgenes') : null,
-    h('a.btn', { href: '#/ajustes/importar-maestros' }, 'Importar desde v7'), h('button.btn.primario', { onclick: () => editarProducto(app, {}, proveedores) }, '+ Nuevo producto'))),
+    h('button.btn.primario', { onclick: () => editarProducto(app, {}, proveedores) }, '+ Nuevo producto'))),
     h('div.tarjeta.filtros', buscar, familia, estado), h('div.tarjeta', contenido));
 }
 
@@ -73,15 +73,15 @@ async function editarProducto(app, producto, proveedores) {
 
 async function editarMargenes(app, familias) {
   const cfg = app.e.config || {};
-  const general = h('input', { id: 'margen-general', type: 'number', min: 1, max: 95, step: 1, value: margenObjetivo(cfg) * 100 });
+  const general = h('input', { id: 'margen-general', type: 'number', min: 1, max: 1000, step: 1, value: margenObjetivo(cfg) * 100 });
   const campos = familias.map((familia, i) => {
     const clave = claveMargenFamilia(familia);
     return h('div.margen-familia', h('label', { for: `margen-${i}` }, familia),
-      h('div.campo-porcentaje', h('input', { id: `margen-${i}`, type: 'number', min: 1, max: 95, step: 1,
+      h('div.campo-porcentaje', h('input', { id: `margen-${i}`, type: 'number', min: 1, max: 1000, step: 1,
         value: cfg[clave] == null ? '' : Number(cfg[clave]) * 100, placeholder: String(margenObjetivo(cfg) * 100) }), h('span', '%')));
   });
-  const form = h('form.formulario', h('label', { for: 'margen-general' }, 'Margen objetivo general'),
-    h('div.campo-porcentaje', general, h('span', '%')), h('p.ayuda', 'Las familias sin valor propio usan el margen general.'), campos);
+  const form = h('form.formulario', h('label', { for: 'margen-general' }, 'Margen objetivo general sobre coste'),
+    h('div.campo-porcentaje', general, h('span', '%')), h('p.ayuda', 'Un 200 % convierte un coste de 10 € en un PVP ideal de 30 €. Las familias sin valor propio usan el margen general.'), campos);
   await dialogo('Márgenes por familia', form, [{ texto: 'Cancelar', valor: false }, { texto: 'Guardar', clase: 'primario', valor: async () => {
     if (!form.reportValidity()) return undefined;
     const config = { ...cfg, margen_ideal: Number(general.value) / 100 };
@@ -108,7 +108,7 @@ export async function vistaProveedores(app) {
   };
   buscar.addEventListener('input', pintar); pintar();
   const ultimos = precios.slice(0, 20);
-  return h('section.pila', h('div.cab', h('div', h('a.volver', { href: '#/facturacion' }, '‹ Facturación'), h('h1', 'Proveedores y precios')), h('a.btn', { href: '#/ajustes/importar-maestros' }, 'Importar desde v7')),
+  return h('section.pila', h('div.cab', h('div', h('a.volver', { href: '#/facturacion' }, '‹ Facturación'), h('h1', 'Proveedores y precios'))),
     h('div.tarjeta.filtros', buscar), h('div.tarjeta', contenido),
     h('div.tarjeta', h('h2', 'Últimos precios'), ultimos.length ? h('table.tabla', h('thead', h('tr', h('th', 'Fecha'), h('th', 'Producto'), h('th', 'Proveedor'), h('th.num', 'Precio sin IGIC'))),
       h('tbody', ultimos.map(x => h('tr', h('td', fecha(x.fecha)), h('td', x.productos?.codigo || ''), h('td', x.proveedores?.nombre || ''), h('td.num', eur(x.precio)))))) : h('p.vacio', 'Todavía no hay precios registrados.')));
