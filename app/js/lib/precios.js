@@ -6,6 +6,14 @@ export function costeUnitario(costeCompra, contenidoCompra = 1) {
   return contenido > 0 ? Math.round(coste / contenido * 10000) / 10000 : 0;
 }
 
+export function codigoDuplicado(codigo, codigos = []) {
+  const base = String(codigo || '').replace(/\s*\(\d+\)$/, '').trim();
+  const usados = new Set(codigos.map(x => String(x).toUpperCase()));
+  let n = 1;
+  while (usados.has(`${base} (${n})`.toUpperCase())) n++;
+  return `${base} (${n})`;
+}
+
 export function margenObjetivo(config = {}, familia = '') {
   const especifico = Number(config[claveMargenFamilia(familia)]);
   const general = Number(config.margen_ideal);
