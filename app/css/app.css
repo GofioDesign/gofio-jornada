@@ -208,6 +208,16 @@ input[type=checkbox], input[type=radio] { width: 20px; min-height: 20px; height:
 .filtros { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .filtros input { flex: 1 1 240px; }
 .filtros select { width: auto; min-width: 150px; }
+.precio-producto { min-width: 190px; }
+.precio-info { display: block; margin-top: 3px; font-size: .72rem; font-weight: 600; white-space: normal; }
+.precio-info.ok { color: var(--ok); }
+.precio-info.alerta { color: var(--peligro); }
+.precio-info.neutro { color: var(--suave); font-weight: 400; }
+.precio-editor { min-height: 20px; }
+.margen-familia { display: grid; grid-template-columns: minmax(140px, 1fr) 120px; gap: 12px; align-items: end; }
+.campo-porcentaje { display: flex; align-items: center; gap: 8px; }
+.campo-porcentaje input { min-width: 0; }
+.campo-porcentaje span { color: var(--suave); font-weight: 700; }
 @media (max-width: 640px) { .archivos-importacion { grid-template-columns: 1fr; } }
 
 /* ---------- Borrador de factura ---------- */
