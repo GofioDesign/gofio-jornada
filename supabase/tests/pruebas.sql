@@ -225,5 +225,36 @@ do $$ declare c jsonb := public.copia_jornada((select org from ctx)); begin
   if jsonb_array_length(c->'fichajes') < 8 or c->>'formato' <> 'gofio-jornada/1' then raise exception 'copia'; end if;
 end $$;
 
+
+-- ===== 7. Seguridad (0007) =====
+-- un empleado no puede descargar la copia de la empresa
+select pg_temp.como('00000000-0000-0000-0000-00000000000b', 'empleado@gofio.test');
+select pg_temp.debe_fallar(format('select public.copia_jornada(%L)', (select org from ctx)), 'Sin permiso');
+-- ni consultar el estado de otra persona
+select pg_temp.debe_fallar(format('select * from public.estado_jornada(%L, %L)', (select org from ctx), '00000000-0000-0000-0000-00000000000a'), 'Sin permiso');
+-- alguien de otra empresa tampoco ve el estado de nadie
+select pg_temp.como('00000000-0000-0000-0000-00000000000c', 'otra@empresa.test');
+select pg_temp.debe_fallar(format('select * from public.estado_jornada(%L)', (select org from ctx)), 'Sin permiso');
+-- el propietario no se puede degradar ni desactivar desde la app
+select pg_temp.como('00000000-0000-0000-0000-00000000000a', 'propietario@gofio.test');
+select pg_temp.debe_fallar(format($q$update miembros set rol = 'admin' where org_id = %L and user_id = '00000000-0000-0000-0000-00000000000a'$q$, (select org from ctx)), 'propietario');
+select pg_temp.debe_fallar(format($q$update miembros set activo = false where org_id = %L and user_id = '00000000-0000-0000-0000-00000000000a'$q$, (select org from ctx)), 'propietario');
+select pg_temp.debe_fallar(format($q$update miembros set rol = 'propietario' where org_id = %L and user_id = '00000000-0000-0000-0000-00000000000b'$q$, (select org from ctx)), 'propietario');
+
+-- un visitante SIN sesión (anon) no puede ejecutar ninguna función
 reset role;
+select pg_temp.como('', '');
+grant select on ctx to anon;
+set role anon;
+select pg_temp.debe_fallar(format('select public.copia_jornada(%L)', (select org from ctx)), 'permission denied');
+select pg_temp.debe_fallar(format('select * from public.estado_jornada(%L, %L)', (select org from ctx), '00000000-0000-0000-0000-00000000000a'), 'permission denied');
+select pg_temp.debe_fallar($$select * from public.mis_invitaciones()$$, 'permission denied');
+reset role;
+do $$ begin
+  if exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+             where n.nspname = 'public' and has_function_privilege('anon', p.oid, 'execute')) then
+    raise exception 'anon puede ejecutar funciones de public';
+  end if;
+end $$;
+
 select 'TODAS LAS PRUEBAS OK' as resultado;
