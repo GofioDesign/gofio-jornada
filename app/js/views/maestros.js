@@ -73,15 +73,15 @@ async function editarProducto(app, producto, proveedores) {
 
 async function editarMargenes(app, familias) {
   const cfg = app.e.config || {};
-  const general = h('input', { id: 'margen-general', type: 'number', min: 1, max: 95, step: 1, value: margenObjetivo(cfg) * 100 });
+  const general = h('input', { id: 'margen-general', type: 'number', min: 1, max: 1000, step: 1, value: margenObjetivo(cfg) * 100 });
   const campos = familias.map((familia, i) => {
     const clave = claveMargenFamilia(familia);
     return h('div.margen-familia', h('label', { for: `margen-${i}` }, familia),
-      h('div.campo-porcentaje', h('input', { id: `margen-${i}`, type: 'number', min: 1, max: 95, step: 1,
+      h('div.campo-porcentaje', h('input', { id: `margen-${i}`, type: 'number', min: 1, max: 1000, step: 1,
         value: cfg[clave] == null ? '' : Number(cfg[clave]) * 100, placeholder: String(margenObjetivo(cfg) * 100) }), h('span', '%')));
   });
-  const form = h('form.formulario', h('label', { for: 'margen-general' }, 'Margen objetivo general'),
-    h('div.campo-porcentaje', general, h('span', '%')), h('p.ayuda', 'Las familias sin valor propio usan el margen general.'), campos);
+  const form = h('form.formulario', h('label', { for: 'margen-general' }, 'Margen objetivo general sobre coste'),
+    h('div.campo-porcentaje', general, h('span', '%')), h('p.ayuda', 'Un 200 % convierte un coste de 10 € en un PVP ideal de 30 €. Las familias sin valor propio usan el margen general.'), campos);
   await dialogo('Márgenes por familia', form, [{ texto: 'Cancelar', valor: false }, { texto: 'Guardar', clase: 'primario', valor: async () => {
     if (!form.reportValidity()) return undefined;
     const config = { ...cfg, margen_ideal: Number(general.value) / 100 };
