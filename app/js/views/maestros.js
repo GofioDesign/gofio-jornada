@@ -29,7 +29,7 @@ export async function vistaProductos(app) {
         h('td', h('span.etiqueta', p.activo ? 'Activo' : 'Inactivo')))))) : h('p.vacio', 'No hay productos con esos filtros.'));
   };
   [buscar, familia, estado].forEach(x => x.addEventListener('input', pintar)); pintar();
-  return h('section.pila', h('div.cab', h('div', h('a.volver', { href: '#/facturacion' }, '‹ Facturación'), h('h1', 'Productos')), h('div.acciones',
+  return h('section.pila.catalogo-productos', h('div.cab', h('div', h('a.volver', { href: '#/facturacion' }, '‹ Facturación'), h('h1', 'Productos')), h('div.acciones',
     puedeGestionar(app.rol) ? h('button.btn', { onclick: () => editarMargenes(app, familias) }, 'Márgenes') : null,
     h('button.btn.primario', { onclick: () => editarProducto(app, {}, proveedores) }, '+ Nuevo producto'))),
     h('div.tarjeta.filtros', buscar, familia, estado), h('div.tarjeta', contenido));
