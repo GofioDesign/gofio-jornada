@@ -28,7 +28,7 @@ La hoja «Gofio Facturación» v7 **sigue funcionando** mientras tanto. No se ap
 ## Fase 2 · Facturación para testers (paridad con la v7)
 Por orden de uso real:
 1. [x] Importador del histórico: validación conjunta de FACTURAS + LINEAS + COBROS en CSV, importación idempotente y conservación de la huella.
-2. [ ] Productos y proveedores: importar CSV, y una pantalla de lista con filtros por familia y activo.
+2. [x] Productos, proveedores y precios: migración validada desde v7, catálogo con filtros por familia/activo e histórico de cotizaciones.
 3. [ ] Editor de factura y presupuesto: líneas desde productos, IGIC por línea, IRPF por cliente y borradores.
 4. [ ] **PDF** (idiomas ES/EN), guardado en Supabase Storage con copia opcional en Drive.
 5. [ ] Cobros, estado pendiente/vencida y recordatorios.
