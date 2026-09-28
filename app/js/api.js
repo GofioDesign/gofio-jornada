@@ -124,14 +124,6 @@ const supa = {
     return ok(await c.rpc('emitir_factura', { p_org: org, p_cliente: d.cliente_id, p_fecha: d.fecha, p_lineas: d.lineas, p_irpf_pct: d.irpf_pct ?? null,
       p_observaciones: d.observaciones || null, p_periodo_desde: d.desde || null, p_periodo_hasta: d.hasta || null, p_horas: d.horas || null }));
   },
-  async importarHistorico(org, facturas) {
-    const c = await cliente();
-    return ok(await c.rpc('importar_historico_facturas', { p_org: org, p_facturas: facturas }));
-  },
-  async importarMaestros(org, datos) {
-    const c = await cliente();
-    return ok(await c.rpc('importar_maestros_facturacion', { p_org: org, p_proveedores: datos.proveedores, p_productos: datos.productos, p_precios: datos.precios }));
-  },
 };
 
 // =====================================================================
@@ -292,18 +284,6 @@ const demo = {
     d.facturas.unshift(f);
     (x.horas || []).forEach(h => d.facturadas.push([x.cliente_id, h.user_id, h.dia, h.tipo].join('|')));
     guardar(d); return f;
-  },
-  async importarHistorico(org, facturas) {
-    const d = db(); let n = 0;
-    for (const f of facturas) {
-      if (d.facturas.some(x => x.org_id === org && x.num === f.num)) continue;
-      d.facturas.push({ ...f, id: uid(), org_id: org, cliente: { codigo: f.cliente_codigo, nombre: f.cliente_nombre }, estado_cobro: 'HISTORICA' });
-      n++;
-    }
-    guardar(d); return n;
-  },
-  async importarMaestros(_org, datos) {
-    return { proveedores: datos.proveedores.length, productos: datos.productos.length, precios: datos.precios.length };
   },
   async borradores(org) { return (db().borradores || []).filter(b => b.org_id === org).sort((a, b) => b.actualizado_en.localeCompare(a.actualizado_en)); },
   async borrador(org, id) { return (db().borradores || []).find(b => b.org_id === org && b.id === id) || null; },

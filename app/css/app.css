@@ -197,13 +197,6 @@ input[type=checkbox], input[type=radio] { width: 20px; min-height: 20px; height:
 }
 .logo-campo { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .logo-previa { max-width: 180px; max-height: 64px; object-fit: contain; background: #fff; border: 1px solid var(--borde); border-radius: 8px; padding: 6px; }
-.archivos-importacion { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 12px 0; }
-.campo-archivo { margin: 0; padding: 10px; border: 1px solid var(--borde); border-radius: 8px; }
-.campo-archivo span { display: block; margin-bottom: 6px; font-weight: 700; }
-.campo-archivo input { width: 100%; font-size: .85rem; }
-.aviso-importacion { margin: 10px 0; padding: 10px 12px; border-left: 3px solid var(--pausa); background: var(--fondo); }
-.aviso-importacion.error { border-color: var(--peligro); }
-.aviso-importacion ul { margin: 6px 0 0; padding-left: 20px; }
 .estado-ok { color: var(--ok); font-weight: 600; }
 .filtros { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .filtros input { flex: 1 1 240px; }
@@ -218,8 +211,6 @@ input[type=checkbox], input[type=radio] { width: 20px; min-height: 20px; height:
 .campo-porcentaje { display: flex; align-items: center; gap: 8px; }
 .campo-porcentaje input { min-width: 0; }
 .campo-porcentaje span { color: var(--suave); font-weight: 700; }
-@media (max-width: 640px) { .archivos-importacion { grid-template-columns: 1fr; } }
-
 /* ---------- Borrador de factura ---------- */
 .lineas-editor { display: flex; flex-direction: column; gap: 8px; }
 .linea-ed { display: grid; grid-template-columns: minmax(160px, 1fr) 70px 56px 90px 64px 64px 88px 28px; gap: 6px; align-items: center; }

@@ -31,7 +31,7 @@ export async function vistaProductos(app) {
   [buscar, familia, estado].forEach(x => x.addEventListener('input', pintar)); pintar();
   return h('section.pila', h('div.cab', h('div', h('a.volver', { href: '#/facturacion' }, '‹ Facturación'), h('h1', 'Productos')), h('div.acciones',
     puedeGestionar(app.rol) ? h('button.btn', { onclick: () => editarMargenes(app, familias) }, 'Márgenes') : null,
-    h('a.btn', { href: '#/ajustes/importar-maestros' }, 'Importar desde v7'), h('button.btn.primario', { onclick: () => editarProducto(app, {}, proveedores) }, '+ Nuevo producto'))),
+    h('button.btn.primario', { onclick: () => editarProducto(app, {}, proveedores) }, '+ Nuevo producto'))),
     h('div.tarjeta.filtros', buscar, familia, estado), h('div.tarjeta', contenido));
 }
 
@@ -108,7 +108,7 @@ export async function vistaProveedores(app) {
   };
   buscar.addEventListener('input', pintar); pintar();
   const ultimos = precios.slice(0, 20);
-  return h('section.pila', h('div.cab', h('div', h('a.volver', { href: '#/facturacion' }, '‹ Facturación'), h('h1', 'Proveedores y precios')), h('a.btn', { href: '#/ajustes/importar-maestros' }, 'Importar desde v7')),
+  return h('section.pila', h('div.cab', h('div', h('a.volver', { href: '#/facturacion' }, '‹ Facturación'), h('h1', 'Proveedores y precios'))),
     h('div.tarjeta.filtros', buscar), h('div.tarjeta', contenido),
     h('div.tarjeta', h('h2', 'Últimos precios'), ultimos.length ? h('table.tabla', h('thead', h('tr', h('th', 'Fecha'), h('th', 'Producto'), h('th', 'Proveedor'), h('th.num', 'Precio sin IGIC'))),
       h('tbody', ultimos.map(x => h('tr', h('td', fecha(x.fecha)), h('td', x.productos?.codigo || ''), h('td', x.proveedores?.nombre || ''), h('td.num', eur(x.precio)))))) : h('p.vacio', 'Todavía no hay precios registrados.')));

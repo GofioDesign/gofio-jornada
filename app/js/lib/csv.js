@@ -1,4 +1,4 @@
-// CSV para Excel / Google Sheets en español (separador ; y coma decimal) e importación de la hoja v7.
+// CSV para Excel / Google Sheets en español (separador ; y coma decimal).
 
 export function toCSV(rows, columnas) {
   if (!rows.length && !columnas) return '﻿';
