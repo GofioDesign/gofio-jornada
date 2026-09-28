@@ -1,0 +1,16 @@
+{
+  "name": "Gofio Jornada",
+  "short_name": "Jornada",
+  "description": "Control horario, desplazamientos y clientes",
+  "lang": "es",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f5f3ee",
+  "theme_color": "#1f3a2e",
+  "icons": [
+    { "src": "icons/icono-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icono-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icono.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
