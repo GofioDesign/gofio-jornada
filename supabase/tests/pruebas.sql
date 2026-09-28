@@ -157,6 +157,23 @@ update organizaciones set tester_facturacion = true, usa_facturacion = true wher
 set role authenticated;
 select pg_temp.como('00000000-0000-0000-0000-00000000000a', 'propietario@gofio.test');
 
+-- maestros de facturación: upsert por código y precios idempotentes
+select public.importar_maestros_facturacion((select org from ctx),
+  '[{"codigo":"PROV","nombre":"Proveedor prueba"}]',
+  '[{"codigo":"PROD","familia":"MATERIALES","descripcion":"Producto prueba","descripcion_factura":"Producto prueba","unidad":"ud","proveedor_codigo":"PROV","coste_ud":8,"pvp":12,"igic_pct":7,"activo":true}]',
+  '[{"producto_codigo":"PROD","proveedor_codigo":"PROV","precio":7.5,"fecha":"2026-01-22"}]');
+select public.importar_maestros_facturacion((select org from ctx),
+  '[{"codigo":"PROV","nombre":"Proveedor actualizado"}]',
+  '[{"codigo":"PROD","familia":"MATERIALES","descripcion":"Producto actualizado","descripcion_factura":"Producto","unidad":"ud","proveedor_codigo":"PROV","coste_ud":8,"pvp":13,"igic_pct":7,"activo":true}]',
+  '[{"producto_codigo":"PROD","proveedor_codigo":"PROV","precio":7.5,"fecha":"2026-01-22"}]');
+do $$ begin
+  if (select count(*) from proveedores where codigo = 'PROV') <> 1 or
+     (select nombre from proveedores where codigo = 'PROV') <> 'Proveedor actualizado' then raise exception 'upsert proveedor'; end if;
+  if (select pvp from productos where codigo = 'PROD') <> 13 then raise exception 'upsert producto'; end if;
+  if (select count(*) from precios_proveedor where precio = 7.5) <> 1 then raise exception 'precio duplicado'; end if;
+  if (select mejor_precio from v_productos where codigo = 'PROD') <> 7.5 then raise exception 'mejor precio'; end if;
+end $$;
+
 -- histórico de la v7: la huella se conserva y la cadena continúa
 select public.importar_historico_facturas((select org from ctx), $$[
  {"num":"EMIT25-0001","serie":"EMIT25","fecha":"2025-10-26","vencimiento":"2025-11-25","cliente_codigo":"X2241917S","cliente_nombre":"MARIA GABRIELLE WARNECKE",

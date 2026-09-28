@@ -71,3 +71,43 @@ export function prepararHistorico(facturas, lineas, cobros, clientes = []) {
   });
   return { documentos, errores, avisos, totales: { facturas: documentos.length, lineas: lineas.length, cobros: cobros.length } };
 }
+
+export function prepararMaestros(productos, proveedores, precios) {
+  const errores = [];
+  const avisos = [];
+  const prov = new Map();
+  for (const [i, r] of proveedores.entries()) {
+    const codigo = texto(r.ID).toUpperCase();
+    if (!codigo || !texto(r.NOMBRE)) { errores.push(`PROVEEDORES, fila ${i + 2}: faltan ID o NOMBRE.`); continue; }
+    if (prov.has(codigo)) { errores.push(`PROVEEDORES: el ID ${codigo} está repetido.`); continue; }
+    prov.set(codigo, { codigo, nombre: texto(r.NOMBRE), nif: texto(r.NIF) || null, web: texto(r.WEB) || null,
+      email: texto(r.EMAIL) || null, telefono: texto(r.TELEFONO) || null, contacto: texto(r.CONTACTO) || null,
+      direccion: texto(r.DIRECCION) || null, notas: texto(r.NOTAS) || null });
+  }
+  const prod = new Map();
+  for (const [i, r] of productos.entries()) {
+    const codigo = texto(r.CODIGO).toUpperCase();
+    const proveedor = texto(r.PROVEEDOR_ID).toUpperCase();
+    if (!codigo || !texto(r.DESCRIPCION)) { errores.push(`PRODUCTOS, fila ${i + 2}: faltan CODIGO o DESCRIPCION.`); continue; }
+    if (prod.has(codigo)) { errores.push(`PRODUCTOS: el código ${codigo} está repetido.`); continue; }
+    if (proveedor && !prov.has(proveedor)) errores.push(`PRODUCTOS ${codigo}: proveedor ${proveedor} no encontrado.`);
+    prod.set(codigo, { codigo, familia: texto(r.FAMILIA) || 'MATERIALES', descripcion: texto(r.DESCRIPCION),
+      descripcion_factura: texto(r.DESCRIPCION_FACTURA) || texto(r.DESCRIPCION), unidad: texto(r.UNIDAD) || 'ud',
+      proveedor_codigo: proveedor || null, ref_proveedor: texto(r.REF_PROVEEDOR) || null,
+      coste_ud: numero(r.COSTE_UD), pvp_historico: numES(r.PVP_HISTORICO), pvp: numero(r.PVP_ACTUAL || r.PVP_NUEVO),
+      igic_pct: numES(r.IGIC_PCT), activo: texto(r.ACTIVO).toUpperCase() !== 'NO', notas: texto(r.NOTAS) || null });
+  }
+  const cotizaciones = [];
+  for (const [i, r] of precios.entries()) {
+    const producto = texto(r.CODIGO).toUpperCase(), proveedor = texto(r.PROVEEDOR_ID).toUpperCase();
+    const precio = numES(r.PRECIO_SIN_IGIC), fecha = fechaValida(r.FECHA);
+    if (!prod.has(producto)) errores.push(`PRECIOS_PROVEEDOR, fila ${i + 2}: producto ${producto || 'vacío'} no encontrado.`);
+    if (!prov.has(proveedor)) errores.push(`PRECIOS_PROVEEDOR, fila ${i + 2}: proveedor ${proveedor || 'vacío'} no encontrado.`);
+    if (precio === null || !fecha) errores.push(`PRECIOS_PROVEEDOR, fila ${i + 2}: precio o fecha no válido.`);
+    if (prod.has(producto) && prov.has(proveedor) && precio !== null && fecha) cotizaciones.push({ producto_codigo: producto, proveedor_codigo: proveedor,
+      precio, fecha, ref_proveedor: texto(r.REF_PROVEEDOR) || null, url: texto(r.URL) || null });
+  }
+  if (!cotizaciones.length) avisos.push('No hay precios de proveedor válidos; se importarán solo proveedores y productos.');
+  return { proveedores: [...prov.values()], productos: [...prod.values()], precios: cotizaciones, errores, avisos,
+    totales: { proveedores: prov.size, productos: prod.size, precios: cotizaciones.length } };
+}

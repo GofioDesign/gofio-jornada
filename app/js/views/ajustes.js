@@ -2,7 +2,7 @@ import { api, DEMO } from '../api.js';
 import { CONFIG } from '../../config.js';
 import { h, accion, aviso, preferencia, ROLES, puedeGestionar, hoyISO } from '../ui.js';
 import { toCSV, parseCSV, numES, descargar } from '../lib/csv.js';
-import { prepararHistorico } from '../lib/importacion.js';
+import { prepararHistorico, prepararMaestros } from '../lib/importacion.js';
 
 export async function vistaAjustes(app, seccion) {
   const e = app.e;
@@ -10,7 +10,7 @@ export async function vistaAjustes(app, seccion) {
   const bloques = [cuenta(app)];
   if (gestiona) {
     const [miembros, invitaciones, exportaciones] = await Promise.all([api.miembros(app.org), api.invitaciones(app.org), api.exportaciones(app.org).catch(() => [])]);
-    bloques.push(usuarios(app, miembros, invitaciones), plan(app, miembros, exportaciones), empresa(app), importar(app), app.facturacion ? importarFacturacion(app) : null);
+    bloques.push(usuarios(app, miembros, invitaciones), plan(app, miembros, exportaciones), empresa(app), importar(app), app.facturacion ? [importarFacturacion(app), importarMaestros(app)] : null);
   }
   const raiz = h('section.pila', h('h1', 'Ajustes'), bloques,
     h('p.ayuda.pie', `Gofio Jornada ${CONFIG.VERSION}${DEMO ? ' · modo demo' : ''} · ${CONFIG.SOPORTE_EMAIL}`));
@@ -213,6 +213,37 @@ function importarFacturacion(app) {
   return h('div.tarjeta', { id: 'importar-facturacion' },
     h('h2', 'Importar histórico de facturación'),
     h('p.ayuda', 'Exporta las pestañas FACTURAS, LINEAS y COBROS de Gofio Facturación como CSV. Primero se validan juntas; la importación no duplica números existentes.'),
+    h('div.archivos-importacion', campos), resultado, boton);
+}
+
+function importarMaestros(app) {
+  const archivos = {};
+  const resultado = h('div');
+  const boton = h('button.btn.primario', { type: 'button', disabled: true }, 'Importar catálogos');
+  let preparado = null;
+  const campos = [['productos', 'PRODUCTOS.csv'], ['proveedores', 'PROVEEDORES.csv'], ['precios', 'PRECIOS_PROVEEDOR.csv']].map(([clave, etiqueta]) => {
+    const input = h('input', { type: 'file', accept: '.csv,text/csv', 'aria-label': etiqueta });
+    input.addEventListener('change', async () => {
+      archivos[clave] = input.files[0] ? parseCSV(await input.files[0].text()) : null;
+      boton.disabled = true; preparado = null;
+      if (!archivos.productos || !archivos.proveedores || !archivos.precios) return resultado.replaceChildren(h('p.ayuda', 'Selecciona los tres archivos para validarlos.'));
+      preparado = prepararMaestros(archivos.productos, archivos.proveedores, archivos.precios);
+      const { totales, errores, avisos } = preparado;
+      resultado.replaceChildren(h('p', h('strong', `${totales.productos} productos`), ` · ${totales.proveedores} proveedores · ${totales.precios} precios`),
+        errores.length ? h('div.aviso-importacion.error', h('strong', `${errores.length} errores que impiden importar`), h('ul', errores.slice(0, 20).map(x => h('li', x)))) : h('p.estado-ok', 'Validación correcta. Los códigos existentes se actualizarán y los precios repetidos se omitirán.'),
+        avisos.length ? h('div.aviso-importacion', h('ul', avisos.map(x => h('li', x)))) : null);
+      boton.disabled = !!errores.length || !totales.productos;
+    });
+    return h('label.campo-archivo', h('span', etiqueta), input);
+  });
+  boton.addEventListener('click', () => accion(boton, async () => {
+    if (!preparado || preparado.errores.length) return;
+    const r = await api.importarMaestros(app.org, preparado);
+    resultado.replaceChildren(h('p.estado-ok', `${r.productos} productos, ${r.proveedores} proveedores y ${r.precios} precios procesados.`));
+    boton.disabled = true;
+  }));
+  return h('div.tarjeta', { id: 'importar-maestros' }, h('h2', 'Migrar productos y proveedores desde v7'),
+    h('p.ayuda', 'Importación específica de Gofio Facturación v7. Actualiza productos y proveedores por código sin duplicar cotizaciones idénticas.'),
     h('div.archivos-importacion', campos), resultado, boton);
 }
 

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { prepararHistorico } from '../app/js/lib/importacion.js';
+import { prepararHistorico, prepararMaestros } from '../app/js/lib/importacion.js';
 
 test('prepara FACTURAS, LINEAS y COBROS de la hoja v7', () => {
   const r = prepararHistorico([
@@ -25,4 +25,23 @@ test('detecta referencias rotas antes de importar', () => {
   assert.ok(r.errores.some(e => e.includes('fecha no válida')));
   assert.ok(r.errores.some(e => e.includes('no está importado')));
   assert.ok(r.errores.some(e => e.includes('no corresponde')));
+});
+
+test('prepara proveedores, productos y precios relacionados', () => {
+  const r = prepararMaestros([
+    { CODIGO: 'P1', FAMILIA: 'MATERIALES', DESCRIPCION: 'Producto', PROVEEDOR_ID: 'PROV', COSTE_UD: '8,00 €', PVP_ACTUAL: '12,00 €', IGIC_PCT: '7%', ACTIVO: 'SI' },
+  ], [{ ID: 'PROV', NOMBRE: 'Proveedor' }], [
+    { CODIGO: 'P1', PROVEEDOR_ID: 'PROV', PRECIO_SIN_IGIC: '7,50 €', FECHA: '22/01/2026' },
+  ]);
+  assert.deepEqual(r.errores, []);
+  assert.equal(r.productos[0].pvp, 12);
+  assert.equal(r.precios[0].fecha, '2026-01-22');
+});
+
+test('rechaza referencias de maestros que no existen', () => {
+  const r = prepararMaestros([{ CODIGO: 'P1', DESCRIPCION: 'Producto', PROVEEDOR_ID: 'X' }], [], [
+    { CODIGO: 'P2', PROVEEDOR_ID: 'X', PRECIO_SIN_IGIC: '1', FECHA: '01/01/2026' },
+  ]);
+  assert.ok(r.errores.some(e => e.includes('proveedor X no encontrado')));
+  assert.ok(r.errores.some(e => e.includes('producto P2 no encontrado')));
 });
