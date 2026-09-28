@@ -104,6 +104,7 @@ const supa = {
       : await c.from('productos').insert(datos).select().single());
   },
   async proveedores(org) { const c = await cliente(); return ok(await c.from('proveedores').select('*').eq('org_id', org).order('nombre')); },
+  async guardarProveedor(org, id, datos) { const c = await cliente(); return ok(await c.from('proveedores').update(datos).eq('org_id', org).eq('id', id).select().single()); },
   async preciosProveedor(org) { const c = await cliente(); return ok(await c.from('precios_proveedor').select('*, productos(codigo,descripcion), proveedores(codigo,nombre)').eq('org_id', org).order('fecha', { ascending: false })); },
   async facturas(org) { const c = await cliente(); return ok(await c.from('v_facturas').select('*').eq('org_id', org).order('fecha', { ascending: false }).order('num', { ascending: false }).limit(200)); },
   async factura(org, id) {
@@ -266,7 +267,8 @@ const demo = {
     if (p) Object.assign(p, x); else { p = { ...x, id: uid(), org_id: org }; d.productos.push(p); }
     guardar(d); return p;
   },
-  async proveedores() { return [{ id: 'prov1', codigo: 'PROV', nombre: 'Proveedor demo', web: 'https://example.com' }]; },
+  async proveedores() { const d = db(); d.proveedores = d.proveedores || [{ id: 'prov1', codigo: 'PROV', nombre: 'Proveedor demo', web: 'https://example.com', activo: true }]; guardar(d); return d.proveedores; },
+  async guardarProveedor(_org, id, datos) { const d = db(); d.proveedores = await demo.proveedores(); const p = d.proveedores.find(x => x.id === id); Object.assign(p, datos); guardar(d); return p; },
   async preciosProveedor() { return [{ id: 'precio1', producto_id: 'p2', proveedor_id: 'prov1', precio: 9.5, fecha: '2026-01-22', productos: { codigo: 'TRANS', descripcion: 'Desplazamiento' }, proveedores: { codigo: 'PROV', nombre: 'Proveedor demo' } }]; },
   async facturas(org) { return db().facturas.filter(f => f.org_id === org); },
   async factura(org, id) { return db().facturas.find(f => f.org_id === org && f.id === id) || null; },
