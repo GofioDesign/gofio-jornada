@@ -114,12 +114,15 @@ const supa = {
     return ok(f) && { ...f.data, lineas: ok(l) };
   },
   async borradores(org) { const c = await cliente(); return ok(await c.from('borradores').select('*').eq('org_id', org).eq('tipo', 'FACTURA').order('actualizado_en', { ascending: false })); },
+  async presupuestos(org) { const c = await cliente(); return ok(await c.from('borradores').select('*').eq('org_id', org).eq('tipo', 'PRESUPUESTO').order('actualizado_en', { ascending: false })); },
   async borrador(org, id) { const c = await cliente(); return ok(await c.from('borradores').select('*').eq('org_id', org).eq('id', id).maybeSingle()); },
   async guardarBorrador(org, b) {
-    const c = await cliente(); const fila = { org_id: org, tipo: 'FACTURA', cliente_id: b.cliente_id || null, datos: b.datos, total: b.total ?? null };
+    const c = await cliente(); const fila = { org_id: org, tipo: b.tipo || 'FACTURA', cliente_id: b.cliente_id || null, datos: b.datos, total: b.total ?? null };
     return ok(b.id ? await c.from('borradores').update(fila).eq('id', b.id).select().single() : await c.from('borradores').insert(fila).select().single());
   },
   async borrarBorrador(id) { const c = await cliente(); return ok(await c.from('borradores').delete().eq('id', id)); },
+  async solicitudesPrecio(org, presupuesto) { const c = await cliente(); return ok(await c.from('solicitudes_precio').select('*').eq('org_id', org).eq('presupuesto_id', presupuesto).order('solicitada_en', { ascending: false })); },
+  async guardarSolicitudPrecio(org, x) { const c = await cliente(); return ok(await c.from('solicitudes_precio').insert({ ...x, org_id: org }).select().single()); },
   async emitirFactura(org, d) {
     const c = await cliente();
     return ok(await c.rpc('emitir_factura', { p_org: org, p_cliente: d.cliente_id, p_fecha: d.fecha, p_lineas: d.lineas, p_irpf_pct: d.irpf_pct ?? null,
@@ -267,7 +270,7 @@ const demo = {
     if (p) Object.assign(p, x); else { p = { ...x, id: uid(), org_id: org }; d.productos.push(p); }
     guardar(d); return p;
   },
-  async proveedores() { const d = db(); d.proveedores = d.proveedores || [{ id: 'prov1', codigo: 'PROV', nombre: 'Proveedor demo', web: 'https://example.com', activo: true }]; guardar(d); return d.proveedores; },
+  async proveedores() { const d = db(); d.proveedores = d.proveedores || [{ id: 'prov1', codigo: 'PROV', nombre: 'Proveedor demo', web: 'https://example.com', email: 'compras@example.com', activo: true }]; guardar(d); return d.proveedores.map(p => p.email ? p : { ...p, email: 'compras@example.com' }); },
   async guardarProveedor(_org, id, datos) { const d = db(); d.proveedores = await demo.proveedores(); const p = d.proveedores.find(x => x.id === id); Object.assign(p, datos); guardar(d); return p; },
   async preciosProveedor() { return [{ id: 'precio1', producto_id: 'p2', proveedor_id: 'prov1', precio: 9.5, fecha: '2026-01-22', productos: { codigo: 'TRANS', descripcion: 'Desplazamiento' }, proveedores: { codigo: 'PROV', nombre: 'Proveedor demo' } }]; },
   async facturas(org) { return db().facturas.filter(f => f.org_id === org); },
@@ -287,16 +290,19 @@ const demo = {
     (x.horas || []).forEach(h => d.facturadas.push([x.cliente_id, h.user_id, h.dia, h.tipo].join('|')));
     guardar(d); return f;
   },
-  async borradores(org) { return (db().borradores || []).filter(b => b.org_id === org).sort((a, b) => b.actualizado_en.localeCompare(a.actualizado_en)); },
+  async borradores(org) { return (db().borradores || []).filter(b => b.org_id === org && (b.tipo || 'FACTURA') === 'FACTURA').sort((a, b) => b.actualizado_en.localeCompare(a.actualizado_en)); },
+  async presupuestos(org) { return (db().borradores || []).filter(b => b.org_id === org && b.tipo === 'PRESUPUESTO').sort((a, b) => b.actualizado_en.localeCompare(a.actualizado_en)); },
   async borrador(org, id) { return (db().borradores || []).find(b => b.org_id === org && b.id === id) || null; },
   async guardarBorrador(org, b) {
     const d = db(); d.borradores = d.borradores || [];
-    const fila = { org_id: org, tipo: 'FACTURA', cliente_id: b.cliente_id || null, datos: b.datos, total: b.total ?? null, actualizado_en: new Date().toISOString() };
+    const fila = { org_id: org, tipo: b.tipo || 'FACTURA', cliente_id: b.cliente_id || null, datos: b.datos, total: b.total ?? null, actualizado_en: new Date().toISOString() };
     let r = b.id && d.borradores.find(x => x.id === b.id);
     if (r) Object.assign(r, fila); else { r = { id: uid(), ...fila }; d.borradores.push(r); }
     guardar(d); return r;
   },
   async borrarBorrador(id) { const d = db(); d.borradores = (d.borradores || []).filter(b => b.id !== id); guardar(d); },
+  async solicitudesPrecio(_org, presupuesto) { return (db().solicitudesPrecio || []).filter(x => x.presupuesto_id === presupuesto).sort((a, b) => b.solicitada_en.localeCompare(a.solicitada_en)); },
+  async guardarSolicitudPrecio(org, x) { const d = db(); d.solicitudesPrecio = d.solicitudesPrecio || []; const r = { id: uid(), org_id: org, solicitada_en: new Date().toISOString(), estado: 'SOLICITADA', ...x }; d.solicitudesPrecio.push(r); guardar(d); return r; },
 };
 
 export const api = DEMO ? demo : supa;
