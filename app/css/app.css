@@ -222,6 +222,16 @@ input[type=checkbox], input[type=radio] { width: 20px; min-height: 20px; height:
 .linea-ed .quitar { padding: 4px; min-height: 0; text-decoration: none; color: var(--suave); }
 .lineas-editor > .btn { align-self: flex-start; }
 @media (max-width: 720px) {
+  .tabla-productos { font-size: .82rem; table-layout: fixed; }
+  .tabla-productos th, .tabla-productos td { padding: 7px 4px; }
+  .tabla-productos th:nth-child(3), .tabla-productos td:nth-child(3),
+  .tabla-productos th:nth-child(6), .tabla-productos td:nth-child(6) { display: none; }
+  .tabla-productos th:nth-child(1), .tabla-productos td:nth-child(1) { width: 18%; }
+  .tabla-productos th:nth-child(2), .tabla-productos td:nth-child(2) { width: 30%; overflow-wrap: anywhere; }
+  .tabla-productos th:nth-child(4), .tabla-productos td:nth-child(4) { width: 15%; }
+  .tabla-productos th:nth-child(5), .tabla-productos td:nth-child(5) { width: 25%; }
+  .tabla-productos th:nth-child(7), .tabla-productos td:nth-child(7) { width: 12%; }
+  .tabla-productos .etiqueta { margin-left: 0; padding: 2px 4px; font-size: .68rem; }
   .linea-ed { grid-template-columns: 1fr 1fr 1fr 28px; grid-template-areas: "desc desc desc x" "cant ud pvp ." "dto igic imp ."; padding-bottom: 10px; border-bottom: 1px solid var(--borde); }
   .linea-ed.cabecera { display: none; }
   .linea-ed .rotulo { display: block; }
