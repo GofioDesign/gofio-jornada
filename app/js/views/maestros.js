@@ -22,7 +22,7 @@ export async function vistaProductos(app) {
     const q = buscar.value.trim().toLowerCase();
     const filas = productos.filter(p => (!q || `${p.codigo} ${p.descripcion} ${p.descripcion_factura || ''}`.toLowerCase().includes(q))
       && (!familia.value || p.familia === familia.value) && (estado.value === '' || Boolean(p.activo) === (estado.value === '1')));
-    contenido.replaceChildren(filas.length ? h('table.tabla',
+    contenido.replaceChildren(filas.length ? h('table.tabla.tabla-productos',
       h('thead', h('tr', h('th', 'Código'), h('th', 'Descripción'), h('th', 'Familia'), h('th.num', 'Coste'), h('th.num', 'PVP'), h('th', 'Mejor proveedor'), h('th', 'Estado'))),
       h('tbody', filas.map(p => h('tr.enlace', { role: 'button', tabIndex: 0, onclick: () => editarProducto(app, p, proveedores), onkeydown: e => { if (e.key === 'Enter') editarProducto(app, p, proveedores); } }, h('td', h('strong', p.codigo)), h('td', p.descripcion), h('td', p.familia),
         h('td.num', eur(p.coste_ud)), h('td.num.precio-producto', eur(p.pvp), indicadorPrecio(p, app.e.config)), h('td', p.mejor_proveedor ? `${p.mejor_proveedor} · ${eur(p.mejor_precio)}` : '—'),
