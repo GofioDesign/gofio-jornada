@@ -2,6 +2,7 @@ import { api, DEMO } from '../api.js';
 import { CONFIG } from '../../config.js';
 import { h, accion, aviso, preferencia, ROLES, puedeGestionar, hoyISO } from '../ui.js';
 import { toCSV, parseCSV, numES, descargar } from '../lib/csv.js';
+import { prepararHistorico } from '../lib/importacion.js';
 
 export async function vistaAjustes(app, seccion) {
   const e = app.e;
@@ -9,7 +10,7 @@ export async function vistaAjustes(app, seccion) {
   const bloques = [cuenta(app)];
   if (gestiona) {
     const [miembros, invitaciones, exportaciones] = await Promise.all([api.miembros(app.org), api.invitaciones(app.org), api.exportaciones(app.org).catch(() => [])]);
-    bloques.push(usuarios(app, miembros, invitaciones), plan(app, miembros, exportaciones), empresa(app), importar(app));
+    bloques.push(usuarios(app, miembros, invitaciones), plan(app, miembros, exportaciones), empresa(app), importar(app), app.facturacion ? importarFacturacion(app) : null);
   }
   const raiz = h('section.pila', h('h1', 'Ajustes'), bloques,
     h('p.ayuda.pie', `Gofio Jornada ${CONFIG.VERSION}${DEMO ? ' · modo demo' : ''} · ${CONFIG.SOPORTE_EMAIL}`));
@@ -173,6 +174,46 @@ function importar(app) {
     h('p.ayuda', 'Desde tu hoja de Google: abre la pestaña CLIENTES ▸ Archivo ▸ Descargar ▸ CSV. Después elige el archivo aquí.'),
     input, resultado,
     h('button.btn.enlace', { onclick: () => descargar('plantilla-clientes.csv', toCSV([], ['ID_CLIENTE', 'NOMBRE', 'TIPO', 'DIRECCION', 'CP', 'LOCALIDAD', 'MUNICIPIO', 'PROVINCIA', 'PAIS', 'EMAIL', 'TELEFONO', 'NOTAS'])) }, 'Descargar plantilla vacía'));
+}
+
+function importarFacturacion(app) {
+  const archivos = {};
+  const resultado = h('div');
+  const boton = h('button.btn.primario', { type: 'button', disabled: true }, 'Importar histórico');
+  let preparado = null;
+  const campos = [
+    ['facturas', 'FACTURAS.csv'], ['lineas', 'LINEAS.csv'], ['cobros', 'COBROS.csv'],
+  ].map(([clave, etiqueta]) => {
+    const input = h('input', { type: 'file', accept: '.csv,text/csv', 'aria-label': etiqueta });
+    input.addEventListener('change', async () => {
+      archivos[clave] = input.files[0] ? parseCSV(await input.files[0].text()) : null;
+      boton.disabled = true; preparado = null;
+      if (!archivos.facturas || !archivos.lineas || !archivos.cobros) {
+        resultado.replaceChildren(h('p.ayuda', 'Selecciona los tres archivos para validarlos.'));
+        return;
+      }
+      const clientes = await api.clientes(app.org);
+      preparado = prepararHistorico(archivos.facturas, archivos.lineas, archivos.cobros, clientes);
+      const { totales, errores, avisos } = preparado;
+      resultado.replaceChildren(
+        h('p', h('strong', `${totales.facturas} facturas`), ` · ${totales.lineas} líneas · ${totales.cobros} cobros`),
+        errores.length ? h('div.aviso-importacion.error', h('strong', `${errores.length} errores que impiden importar`), h('ul', errores.slice(0, 20).map(x => h('li', x)))) : h('p.estado-ok', 'Validación correcta. No se modificarán las facturas que ya existan.'),
+        avisos.length ? h('div.aviso-importacion', h('strong', `${avisos.length} avisos`), h('ul', avisos.slice(0, 20).map(x => h('li', x)))) : null,
+      );
+      boton.disabled = !!errores.length || !totales.facturas;
+    });
+    return h('label.campo-archivo', h('span', etiqueta), input);
+  });
+  boton.addEventListener('click', () => accion(boton, async () => {
+    if (!preparado || preparado.errores.length) return;
+    const n = await api.importarHistorico(app.org, preparado.documentos);
+    resultado.replaceChildren(h('p.estado-ok', `${n} facturas importadas. Las que ya existían se conservaron sin cambios.`));
+    boton.disabled = true;
+  }));
+  return h('div.tarjeta', { id: 'importar-facturacion' },
+    h('h2', 'Importar histórico de facturación'),
+    h('p.ayuda', 'Exporta las pestañas FACTURAS, LINEAS y COBROS de Gofio Facturación como CSV. Primero se validan juntas; la importación no duplica números existentes.'),
+    h('div.archivos-importacion', campos), resultado, boton);
 }
 
 // Reduce una imagen a 600×240 px como máximo y la devuelve como data URL (PNG para conservar la transparencia).
