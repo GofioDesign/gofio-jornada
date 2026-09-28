@@ -1,8 +1,8 @@
 import { api } from '../api.js';
-import { h, eur, fecha } from '../ui.js';
+import { h, eur, fecha, accion, aviso, dialogo } from '../ui.js';
 
 export async function vistaProductos(app) {
-  const productos = await api.catalogoProductos(app.org);
+  const [productos, proveedores] = await Promise.all([api.catalogoProductos(app.org), api.proveedores(app.org)]);
   const familias = [...new Set(productos.map(p => p.familia).filter(Boolean))].sort();
   const buscar = h('input', { type: 'search', placeholder: 'Buscar código o descripción…', 'aria-label': 'Buscar productos' });
   const familia = h('select', { 'aria-label': 'Familia' }, h('option', { value: '' }, 'Todas las familias'), familias.map(x => h('option', { value: x }, x)));
@@ -14,13 +14,44 @@ export async function vistaProductos(app) {
       && (!familia.value || p.familia === familia.value) && (estado.value === '' || Boolean(p.activo) === (estado.value === '1')));
     contenido.replaceChildren(filas.length ? h('table.tabla',
       h('thead', h('tr', h('th', 'Código'), h('th', 'Descripción'), h('th', 'Familia'), h('th.num', 'Coste'), h('th.num', 'PVP'), h('th', 'Mejor proveedor'), h('th', 'Estado'))),
-      h('tbody', filas.map(p => h('tr', h('td', h('strong', p.codigo)), h('td', p.descripcion), h('td', p.familia),
+      h('tbody', filas.map(p => h('tr.enlace', { role: 'button', tabIndex: 0, onclick: () => editarProducto(app, p, proveedores), onkeydown: e => { if (e.key === 'Enter') editarProducto(app, p, proveedores); } }, h('td', h('strong', p.codigo)), h('td', p.descripcion), h('td', p.familia),
         h('td.num', eur(p.coste_ud)), h('td.num', eur(p.pvp)), h('td', p.mejor_proveedor ? `${p.mejor_proveedor} · ${eur(p.mejor_precio)}` : '—'),
         h('td', h('span.etiqueta', p.activo ? 'Activo' : 'Inactivo')))))) : h('p.vacio', 'No hay productos con esos filtros.'));
   };
   [buscar, familia, estado].forEach(x => x.addEventListener('input', pintar)); pintar();
-  return h('section.pila', h('div.cab', h('div', h('a.volver', { href: '#/facturacion' }, '‹ Facturación'), h('h1', 'Productos')), h('a.btn', { href: '#/ajustes/importar-maestros' }, 'Importar desde v7')),
+  return h('section.pila', h('div.cab', h('div', h('a.volver', { href: '#/facturacion' }, '‹ Facturación'), h('h1', 'Productos')), h('div.acciones', h('a.btn', { href: '#/ajustes/importar-maestros' }, 'Importar desde v7'), h('button.btn.primario', { onclick: () => editarProducto(app, {}, proveedores) }, '+ Nuevo producto'))),
     h('div.tarjeta.filtros', buscar, familia, estado), h('div.tarjeta', contenido));
+}
+
+async function editarProducto(app, producto, proveedores) {
+  const campo = (id, etiqueta, attrs = {}) => [h('label', { for: 'prod-' + id }, etiqueta), h('input', { id: 'prod-' + id, value: producto[id] ?? '', ...attrs })];
+  const proveedor = h('select', { id: 'prod-proveedor' }, h('option', { value: '' }, 'Sin proveedor habitual'),
+    proveedores.map(p => h('option', { value: p.id, selected: p.id === producto.proveedor_id }, `${p.codigo} · ${p.nombre}`)));
+  const form = h('form.formulario',
+    h('div.dos', h('div', campo('codigo', 'Código *', { required: true })), h('div', campo('familia', 'Familia *', { required: true, list: 'familias-producto' }))),
+    h('datalist', { id: 'familias-producto' }, ['MANO DE OBRA', 'MATERIALES', 'TRANSPORTE', 'FIJACIONES Y ACCESORIOS', 'SERVICIOS'].map(x => h('option', { value: x }))),
+    campo('descripcion', 'Descripción interna *', { required: true }), campo('descripcion_factura', 'Descripción para factura'),
+    h('div.dos', h('div', campo('unidad', 'Unidad *', { required: true })), h('div', h('label', { for: 'prod-proveedor' }, 'Proveedor habitual'), proveedor)),
+    campo('ref_proveedor', 'Referencia del proveedor'),
+    h('div.dos', h('div', campo('coste_ud', 'Coste unitario', { type: 'number', min: 0, step: '0.01' })), h('div', campo('pvp', 'PVP sin IGIC', { type: 'number', min: 0, step: '0.01' }))),
+    h('div.dos', h('div', campo('igic_pct', 'IGIC (%)', { type: 'number', min: 0, max: 20, step: '0.01' })), h('div', campo('pvp_historico', 'PVP histórico', { type: 'number', min: 0, step: '0.01' }))),
+    h('label', { for: 'prod-notas' }, 'Notas'), h('textarea', { id: 'prod-notas', rows: 3, value: producto.notas || '' }),
+    h('label.check', h('input', { id: 'prod-activo', type: 'checkbox', checked: producto.activo !== false }), ' Activo'));
+  await dialogo(producto.id ? `Editar ${producto.codigo}` : 'Nuevo producto', form, [{ texto: 'Cancelar', valor: false }, {
+    texto: 'Guardar', clase: 'primario', valor: async () => {
+      if (!form.reportValidity()) return undefined;
+      const v = id => form.querySelector('#prod-' + id).value.trim();
+      const n = id => v(id) === '' ? null : Number(v(id));
+      const datos = { id: producto.id, codigo: v('codigo').toUpperCase(), familia: v('familia').toUpperCase(), descripcion: v('descripcion'),
+        descripcion_factura: v('descripcion_factura') || null, unidad: v('unidad'), proveedor_id: proveedor.value || null,
+        ref_proveedor: v('ref_proveedor') || null, coste_ud: n('coste_ud') ?? 0, pvp: n('pvp') ?? 0,
+        igic_pct: n('igic_pct'), pvp_historico: n('pvp_historico'), notas: v('notas') || null,
+        activo: form.querySelector('#prod-activo').checked };
+      const ok = await accion(null, async () => { await api.guardarProducto(app.org, datos); return true; });
+      if (!ok) return undefined;
+      aviso('Producto guardado', 'ok'); window.dispatchEvent(new HashChangeEvent('hashchange')); return true;
+    },
+  }]);
 }
 
 export async function vistaProveedores(app) {
