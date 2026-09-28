@@ -16,9 +16,10 @@
 1. Crea una cuenta en <https://supabase.com> → **New project**.
    - Región: **West EU (Ireland)** o **Central EU (Frankfurt)**, para que los datos se queden en la UE.
    - Guarda la contraseña de la base de datos en tu gestor de contraseñas.
-2. **SQL Editor** → pega y ejecuta, **en orden**, cada archivo de `supabase/migrations/` (0001 → 0005).
+2. **SQL Editor** → pega y ejecuta, **en orden**, cada archivo de `supabase/migrations/` (0001 → 0007).
+   **No** ejecutes nada de `supabase/tests/`: son pruebas para GitHub Actions y crean datos falsos.
    *(Alternativa con la CLI: `supabase link` y después `supabase db push`.)*
-3. **Authentication → Providers → Email**: activado. Desactiva «Confirm email» si quieres que el primer enlace ya sirva de confirmación.
+3. **Authentication → Providers → Email**: activado y con **«Confirm email» ACTIVADO**. Si se desactiva, cualquiera podría darse de alta con el email de otra persona y aceptar su invitación.
 4. **Authentication → URL Configuration**:
    - *Site URL*: la URL de la app (paso 3), p. ej. `https://<tu-usuario>.github.io/gofio-jornada/`
    - *Redirect URLs*: la misma URL y `http://localhost:8080` para pruebas.
@@ -57,4 +58,5 @@ update planes set max_usuarios = 3 where id = 'gratis';
 Cuando vence `plan_hasta`, la empresa vuelve a tener los límites del plan gratis. **Sus datos no se tocan.**
 
 ## 6. Actualizar a todos los clientes
-Hay un único código para todas las empresas: cada `push` a `main` actualiza la app de todas. Los cambios en la base de datos van en un **archivo de migración nuevo** (`0006_...sql`); los que ya se han aplicado no se editan.
+Hay un único código para todas las empresas: cada `push` a `main` actualiza la app de todas. Los cambios en la base de datos van en un **archivo de migración nuevo** (`0008_...sql`); los que ya se han aplicado no se editan.
+Cada función nueva debe llevar `revoke execute on function public.<nombre>(...) from public, anon;` (las pruebas fallan si se olvida).
