@@ -46,3 +46,5 @@ begin
   end loop;
   return jsonb_build_object('proveedores', n_prov, 'productos', n_prod, 'precios', n_prec);
 end $$;
+revoke execute on function public.importar_maestros_facturacion(uuid, jsonb, jsonb, jsonb) from public, anon;
+grant execute on function public.importar_maestros_facturacion(uuid, jsonb, jsonb, jsonb) to authenticated, service_role;
