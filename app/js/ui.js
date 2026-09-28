@@ -58,7 +58,9 @@ export function dialogo(titulo, contenido, botones = [{ texto: 'Cerrar', valor: 
 export const hoyISO = (tz = 'Atlantic/Canary') => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 export const hora = (x, tz = 'Atlantic/Canary') => x ? new Date(x).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: tz }) : '—';
 export const fecha = (x) => x ? new Date(x + (String(x).length === 10 ? 'T12:00:00' : '')).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' }) : '—';
-export const eur = n => (Number(n) || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+export const eur = (n, decimales = 2) => (Number(n) || 0).toLocaleString('es-ES', {
+  minimumFractionDigits: decimales, maximumFractionDigits: decimales,
+}) + ' €';
 export const sumarDias = (iso, n) => { const d = new Date(iso + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 
 /** Posición GPS (o null si no hay permiso / tarda demasiado). No bloquea el fichaje. */

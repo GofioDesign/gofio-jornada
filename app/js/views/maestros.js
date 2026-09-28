@@ -1,6 +1,6 @@
 import { api } from '../api.js';
 import { h, eur, fecha, accion, aviso, dialogo, puedeGestionar } from '../ui.js';
-import { claveMargenFamilia, datosPrecio, margenObjetivo } from '../lib/precios.js';
+import { claveMargenFamilia, costeUnitario, datosPrecio, margenObjetivo } from '../lib/precios.js';
 
 const pct = n => Number(n).toLocaleString('es-ES', { style: 'percent', maximumFractionDigits: 1 });
 
@@ -25,7 +25,7 @@ export async function vistaProductos(app) {
     contenido.replaceChildren(filas.length ? h('table.tabla.tabla-productos',
       h('thead', h('tr', h('th', 'Código'), h('th', 'Descripción'), h('th', 'Familia'), h('th.num', 'Coste'), h('th.num', 'PVP'), h('th', 'Mejor proveedor'), h('th', 'Estado'))),
       h('tbody', filas.map(p => h('tr.enlace', { role: 'button', tabIndex: 0, onclick: () => editarProducto(app, p, proveedores), onkeydown: e => { if (e.key === 'Enter') editarProducto(app, p, proveedores); } }, h('td', h('strong', p.codigo)), h('td', p.descripcion), h('td', p.familia),
-        h('td.num', eur(p.coste_ud)), h('td.num.precio-producto', eur(p.pvp), indicadorPrecio(p, app.e.config)), h('td', p.mejor_proveedor ? `${p.mejor_proveedor} · ${eur(p.mejor_precio)}` : '—'),
+        h('td.num', eur(p.coste_ud, 4)), h('td.num.precio-producto', eur(p.pvp), indicadorPrecio(p, app.e.config)), h('td', p.mejor_proveedor ? `${p.mejor_proveedor} · ${eur(p.mejor_precio, 4)}` : '—'),
         h('td', h('span.etiqueta', p.activo ? 'Activo' : 'Inactivo')))))) : h('p.vacio', 'No hay productos con esos filtros.'));
   };
   [buscar, familia, estado].forEach(x => x.addEventListener('input', pintar)); pintar();
@@ -44,15 +44,23 @@ async function editarProducto(app, producto, proveedores) {
     h('div.dos', h('div', campo('codigo', 'Código *', { required: true })), h('div', campo('familia', 'Familia *', { required: true, list: 'familias-producto' }))),
     h('datalist', { id: 'familias-producto' }, ['MANO DE OBRA', 'MATERIALES', 'TRANSPORTE', 'FIJACIONES Y ACCESORIOS', 'SERVICIOS'].map(x => h('option', { value: x }))),
     campo('descripcion', 'Descripción interna *', { required: true }), campo('descripcion_factura', 'Descripción para factura'),
-    h('div.dos', h('div', campo('unidad', 'Unidad *', { required: true })), h('div', h('label', { for: 'prod-proveedor' }, 'Proveedor habitual'), proveedor)),
+    h('div.dos', h('div', campo('unidad', 'Unidad de venta *', { required: true })), h('div', h('label', { for: 'prod-proveedor' }, 'Proveedor habitual'), proveedor)),
     campo('ref_proveedor', 'Referencia del proveedor'),
-    h('div.dos', h('div', campo('coste_ud', 'Coste unitario', { type: 'number', min: 0, step: '0.01' })), h('div', campo('pvp', 'PVP sin IGIC', { type: 'number', min: 0, step: '0.01' }), precioInfo)),
+    h('h3', 'Compra y coste unitario'),
+    h('div.dos', h('div', campo('unidad_compra', 'Formato de compra', { placeholder: 'Paquete, caja, bobina…' })),
+      h('div', campo('contenido_compra', 'Unidades de venta por formato', { type: 'number', min: 0.0001, step: '0.0001', value: producto.contenido_compra ?? 1 }))),
+    h('div.dos', h('div', campo('coste_compra', 'Precio del formato', { type: 'number', min: 0, step: '0.0001', value: producto.coste_compra ?? producto.coste_ud ?? 0 })),
+      h('div', campo('coste_ud', 'Coste por unidad', { type: 'number', min: 0, step: '0.0001', readOnly: true }))),
+    h('div.dos', h('div', campo('pvp', 'PVP sin IGIC', { type: 'number', min: 0, step: '0.01' }), precioInfo), h('div')),
     h('div.dos', h('div', campo('igic_pct', 'IGIC (%)', { type: 'number', min: 0, max: 20, step: '0.01' })), h('div', campo('pvp_historico', 'PVP histórico', { type: 'number', min: 0, step: '0.01' }))),
     h('label', { for: 'prod-notas' }, 'Notas'), h('textarea', { id: 'prod-notas', rows: 3, value: producto.notas || '' }),
     h('label.check', h('input', { id: 'prod-activo', type: 'checkbox', checked: producto.activo !== false }), ' Activo'));
-  const pintarPrecio = () => precioInfo.replaceChildren(indicadorPrecio({ coste_ud: form.querySelector('#prod-coste_ud').value,
+  const pintarPrecio = () => {
+    form.querySelector('#prod-coste_ud').value = costeUnitario(form.querySelector('#prod-coste_compra').value, form.querySelector('#prod-contenido_compra').value);
+    precioInfo.replaceChildren(indicadorPrecio({ coste_ud: form.querySelector('#prod-coste_ud').value,
     pvp: form.querySelector('#prod-pvp').value, familia: form.querySelector('#prod-familia').value }, app.e.config));
-  ['coste_ud', 'pvp', 'familia'].forEach(id => form.querySelector('#prod-' + id).addEventListener('input', pintarPrecio));
+  };
+  ['coste_compra', 'contenido_compra', 'pvp', 'familia'].forEach(id => form.querySelector('#prod-' + id).addEventListener('input', pintarPrecio));
   pintarPrecio();
   await dialogo(producto.id ? `Editar ${producto.codigo}` : 'Nuevo producto', form, [{ texto: 'Cancelar', valor: false }, {
     texto: 'Guardar', clase: 'primario', valor: async () => {
@@ -61,7 +69,9 @@ async function editarProducto(app, producto, proveedores) {
       const n = id => v(id) === '' ? null : Number(v(id));
       const datos = { id: producto.id, codigo: v('codigo').toUpperCase(), familia: v('familia').toUpperCase(), descripcion: v('descripcion'),
         descripcion_factura: v('descripcion_factura') || null, unidad: v('unidad'), proveedor_id: proveedor.value || null,
-        ref_proveedor: v('ref_proveedor') || null, coste_ud: n('coste_ud') ?? 0, pvp: n('pvp') ?? 0,
+        ref_proveedor: v('ref_proveedor') || null, unidad_compra: v('unidad_compra') || null,
+        contenido_compra: n('contenido_compra') ?? 1, coste_compra: n('coste_compra') ?? 0,
+        coste_ud: n('coste_ud') ?? 0, pvp: n('pvp') ?? 0,
         igic_pct: n('igic_pct'), pvp_historico: n('pvp_historico'), notas: v('notas') || null,
         activo: form.querySelector('#prod-activo').checked };
       const ok = await accion(null, async () => { await api.guardarProducto(app.org, datos); return true; });
@@ -111,5 +121,5 @@ export async function vistaProveedores(app) {
   return h('section.pila', h('div.cab', h('div', h('a.volver', { href: '#/facturacion' }, '‹ Facturación'), h('h1', 'Proveedores y precios'))),
     h('div.tarjeta.filtros', buscar), h('div.tarjeta', contenido),
     h('div.tarjeta', h('h2', 'Últimos precios'), ultimos.length ? h('table.tabla', h('thead', h('tr', h('th', 'Fecha'), h('th', 'Producto'), h('th', 'Proveedor'), h('th.num', 'Precio sin IGIC'))),
-      h('tbody', ultimos.map(x => h('tr', h('td', fecha(x.fecha)), h('td', x.productos?.codigo || ''), h('td', x.proveedores?.nombre || ''), h('td.num', eur(x.precio)))))) : h('p.vacio', 'Todavía no hay precios registrados.')));
+      h('tbody', ultimos.map(x => h('tr', h('td', fecha(x.fecha)), h('td', x.productos?.codigo || ''), h('td', x.proveedores?.nombre || ''), h('td.num', eur(x.precio, 4)))))) : h('p.vacio', 'Todavía no hay precios registrados.')));
 }

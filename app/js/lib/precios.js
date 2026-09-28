@@ -1,5 +1,11 @@
 export const claveMargenFamilia = familia => `margen_ideal_${String(familia || '').trim().toLowerCase()}`;
 
+export function costeUnitario(costeCompra, contenidoCompra = 1) {
+  const coste = Number(costeCompra) || 0;
+  const contenido = Number(contenidoCompra) || 0;
+  return contenido > 0 ? Math.round(coste / contenido * 10000) / 10000 : 0;
+}
+
 export function margenObjetivo(config = {}, familia = '') {
   const especifico = Number(config[claveMargenFamilia(familia)]);
   const general = Number(config.margen_ideal);
