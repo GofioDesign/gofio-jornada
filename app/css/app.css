@@ -132,6 +132,7 @@ input[type=checkbox], input[type=radio] { width: 20px; min-height: 20px; height:
 .icono.factura { --i: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linejoin="round"><path d="M6 2h9l4 4v16H6z"/><path d="M9 11h7M9 15h7M9 7h3"/></svg>'); }
 .icono.ajustes { --i: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>'); }
 @media (min-width: 900px) {
+  .vista:has(.catalogo-productos) { max-width: 1100px; }
   .menu { top: 0; bottom: auto; left: 50%; right: auto; transform: translateX(-50%); height: 56px; background: transparent; border: 0; gap: 4px; padding: 0; }
   .menu a { flex-direction: row; gap: 6px; font-size: .9rem; color: rgb(255 255 255 / .75); padding: 0 12px; }
   .menu a.activo { color: #fff; }
