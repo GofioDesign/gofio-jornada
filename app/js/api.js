@@ -98,6 +98,11 @@ const supa = {
   async horasPendientes(org, cli, desde, hasta) { const c = await cliente(); return ok(await c.rpc('horas_pendientes', { p_org: org, p_cliente: cli, p_desde: desde, p_hasta: hasta })); },
   async productos(org) { const c = await cliente(); return ok(await c.from('productos').select('*').eq('org_id', org).eq('activo', true).order('codigo')); },
   async catalogoProductos(org) { const c = await cliente(); return ok(await c.from('v_productos').select('*').eq('org_id', org).order('familia').order('codigo')); },
+  async guardarProducto(org, x) {
+    const c = await cliente(); const { id, ...datos } = x; datos.org_id = org;
+    return ok(id ? await c.from('productos').update(datos).eq('org_id', org).eq('id', id).select().single()
+      : await c.from('productos').insert(datos).select().single());
+  },
   async proveedores(org) { const c = await cliente(); return ok(await c.from('proveedores').select('*').eq('org_id', org).order('nombre')); },
   async preciosProveedor(org) { const c = await cliente(); return ok(await c.from('precios_proveedor').select('*, productos(codigo,descripcion), proveedores(codigo,nombre)').eq('org_id', org).order('fecha', { ascending: false })); },
   async facturas(org) { const c = await cliente(); return ok(await c.from('v_facturas').select('*').eq('org_id', org).order('fecha', { ascending: false }).order('num', { ascending: false }).limit(200)); },
@@ -260,8 +265,15 @@ const demo = {
     tr.forEach(t => { const k = [t.user_id, t.dia, t.tipo].join('|'); g[k] = g[k] || { user_id: t.user_id, nombre: d.miembros.find(m => m.user_id === t.user_id)?.nombre, dia: t.dia, tipo: t.tipo, minutos: 0, km: 0, tramos: 0 }; g[k].minutos += t.minutos; g[k].km += t.km || 0; g[k].tramos++; });
     return Object.values(g).filter(h => !d.facturadas.includes([cli, h.user_id, h.dia, h.tipo].join('|')));
   },
-  async productos() { return demo.catalogoProductos(); },
-  async catalogoProductos() { return [{ id: 'p1', codigo: '1HTEC', familia: 'MANO DE OBRA', descripcion: 'Hora de trabajo técnico', descripcion_factura: 'Hora de trabajo técnico', unidad: 'h', coste_ud: 0, pvp: 35, igic_pct: 7, activo: true }, { id: 'p2', codigo: 'TRANS', familia: 'TRANSPORTE', descripcion: 'Desplazamiento', descripcion_factura: 'Desplazamiento', unidad: 'ud', coste_ud: 10, pvp: 25, igic_pct: 7, activo: true, mejor_precio: 9.5, mejor_proveedor: 'Proveedor demo' }]; },
+  async productos() { return (await demo.catalogoProductos()).filter(p => p.activo !== false); },
+  async catalogoProductos() { const d = db(); d.productos = d.productos || [{ id: 'p1', codigo: '1HTEC', familia: 'MANO DE OBRA', descripcion: 'Hora de trabajo técnico', descripcion_factura: 'Hora de trabajo técnico', unidad: 'h', coste_ud: 0, pvp: 35, igic_pct: 7, activo: true }, { id: 'p2', codigo: 'TRANS', familia: 'TRANSPORTE', descripcion: 'Desplazamiento', descripcion_factura: 'Desplazamiento', unidad: 'ud', coste_ud: 10, pvp: 25, igic_pct: 7, activo: true, mejor_precio: 9.5, mejor_proveedor: 'Proveedor demo' }]; guardar(d); return d.productos; },
+  async guardarProducto(org, x) {
+    const d = db(); d.productos = await demo.catalogoProductos();
+    if (d.productos.some(p => p.codigo === x.codigo && p.id !== x.id)) throw new Error('Ya existe un registro con ese código');
+    let p = x.id && d.productos.find(y => y.id === x.id);
+    if (p) Object.assign(p, x); else { p = { ...x, id: uid(), org_id: org }; d.productos.push(p); }
+    guardar(d); return p;
+  },
   async proveedores() { return [{ id: 'prov1', codigo: 'PROV', nombre: 'Proveedor demo', web: 'https://example.com' }]; },
   async preciosProveedor() { return [{ id: 'precio1', producto_id: 'p2', proveedor_id: 'prov1', precio: 9.5, fecha: '2026-01-22', productos: { codigo: 'TRANS', descripcion: 'Desplazamiento' }, proveedores: { codigo: 'PROV', nombre: 'Proveedor demo' } }]; },
   async facturas(org) { return db().facturas.filter(f => f.org_id === org); },
