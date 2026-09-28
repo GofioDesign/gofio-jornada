@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { datosPrecio, margenObjetivo } from '../app/js/lib/precios.js';
+import { costeUnitario, datosPrecio, margenObjetivo } from '../app/js/lib/precios.js';
+
+test('convierte el precio de un paquete a coste por unidad de venta', () => {
+  assert.equal(costeUnitario(20, 100), 0.2);
+  assert.equal(costeUnitario(8.6734, 1), 8.6734);
+});
 
 test('calcula el PVP ideal a partir del margen objetivo', () => {
   const d = datosPrecio(40, 100, { margen_ideal: 0.6 }, 'MATERIALES');
