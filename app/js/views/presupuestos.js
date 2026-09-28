@@ -16,7 +16,7 @@ export async function vistaPresupuestos(app) {
 
 export async function vistaPresupuesto(app, id) {
   const nuevo = id === 'nuevo';
-  const [clientes, proveedores, b] = await Promise.all([api.clientes(app.org), api.proveedores(app.org), nuevo ? null : api.borrador(app.org, id)]);
+  const [clientes, proveedores, productos, b] = await Promise.all([api.clientes(app.org), api.proveedores(app.org), api.productos(app.org), nuevo ? null : api.borrador(app.org, id)]);
   if (!nuevo && (!b || b.tipo !== 'PRESUPUESTO')) return h('p.vacio', 'Presupuesto no encontrado.');
   const d = structuredClone(b?.datos || {});
   let borradorId = b?.id || null;
@@ -27,15 +27,27 @@ export async function vistaPresupuesto(app, id) {
   const fechaDoc = h('input', { type: 'date', value: d.fecha || hoyISO(app.tz) });
   const editor = h('div.lineas-editor');
   const historial = h('div');
+  const producto = h('select', { 'aria-label': 'Producto del catálogo' },
+    h('option', { value: '' }, 'Selecciona un producto…'),
+    productos.map(p => h('option', { value: p.id }, `${p.codigo} · ${p.descripcion}`)));
   const validas = () => lineas.filter(l => String(l.descripcion || '').trim());
   const total = () => validas().reduce((s, l) => s + (Number(l.cantidad) || 0) * (Number(l.pvp) || 0), 0);
 
+  const lineaLibre = () => ({ producto_id: null, codigo: '', descripcion: '', cantidad: 1, unidad: 'ud', pvp: 0 });
+  const anadirProducto = () => {
+    const p = productos.find(x => x.id === producto.value);
+    if (!p) return;
+    if (lineas.length === 1 && !String(lineas[0].descripcion || '').trim()) lineas.splice(0, 1);
+    lineas.push({ producto_id: p.id, codigo: p.codigo, descripcion: p.descripcion_factura || p.descripcion, cantidad: 1,
+      unidad: p.unidad || 'ud', pvp: Number(p.pvp) || 0, coste: Number(p.coste_ud) || 0, igic: p.igic_pct, familia: p.familia });
+    producto.value = ''; pintarLineas();
+  };
   const pintarLineas = () => montar(editor,
     h('div.linea-pres.cabecera', { 'aria-hidden': 'true' }, ['Descripción', 'Cantidad', 'Unidad', 'PVP estimado', ''].map(x => h('span', x))),
     lineas.map((l, i) => h('div.linea-pres',
       campo(l, 'descripcion', 'Descripción', 'text'), campo(l, 'cantidad', 'Cantidad', 'number'), campo(l, 'unidad', 'Unidad', 'text'), campo(l, 'pvp', 'PVP estimado', 'number'),
-      h('button.btn.enlace.quitar', { type: 'button', title: 'Quitar línea', onclick: () => { lineas.splice(i, 1); if (!lineas.length) lineas.push({ descripcion: '', cantidad: 1, unidad: 'ud', pvp: 0 }); pintarLineas(); } }, '✕'))),
-    h('button.btn', { type: 'button', onclick: () => { lineas.push({ descripcion: '', cantidad: 1, unidad: 'ud', pvp: 0 }); pintarLineas(); } }, '+ Añadir línea'));
+      h('button.btn.enlace.quitar', { type: 'button', title: 'Quitar línea', onclick: () => { lineas.splice(i, 1); if (!lineas.length) lineas.push(lineaLibre()); pintarLineas(); } }, '✕'))),
+    h('button.btn', { type: 'button', onclick: () => { lineas.push(lineaLibre()); pintarLineas(); } }, '+ Partida libre'));
   const campo = (l, k, rotulo, type) => h('label', h('span.rotulo', rotulo), h('input', { type, step: type === 'number' ? 'any' : null, min: type === 'number' ? 0 : null, value: l[k] ?? '', oninput: e => { l[k] = type === 'number' ? Number(e.target.value) : e.target.value; } }));
 
   const guardar = async () => {
@@ -56,7 +68,7 @@ export async function vistaPresupuesto(app, id) {
     const dlg = h('dialog.solicitud-precio');
     const checks = disponibles.map(p => ({ p, el: h('input', { type: 'checkbox' }) }));
     const asunto = h('input', { value: `Solicitud de precio · ${app.e.nombre}` });
-    const texto = h('textarea', { rows: 9 }, `Hola,\n\nSolicitamos precio y disponibilidad para:\n\n${ls.map(l => `- ${l.cantidad} ${l.unidad || 'ud'} · ${l.descripcion}`).join('\n')}\n\nGracias.`);
+    const texto = h('textarea', { rows: 9 }, `Hola,\n\nSolicitamos precio y disponibilidad para:\n\n${ls.map(l => `- ${l.cantidad} ${l.unidad || 'ud'} · ${l.codigo ? l.codigo + ' · ' : ''}${l.descripcion}`).join('\n')}\n\nGracias.`);
     montar(dlg, h('form', { method: 'dialog' }, h('div.cab', h('h2', 'Solicitar precio'), h('button.btn.enlace', { value: 'cancel', 'aria-label': 'Cerrar' }, '✕')),
       h('p.ayuda', 'Se abrirá un correo independiente para cada proveedor seleccionado.'),
       h('div.proveedores-check', checks.map(x => h('label.check', x.el, h('span', x.p.nombre, h('small', x.p.email))))),
@@ -77,6 +89,7 @@ export async function vistaPresupuesto(app, id) {
     h('div.cab', h('h1', nuevo ? 'Nuevo presupuesto' : 'Presupuesto'), h('div.acciones',
       h('button.btn', { onclick: ev => accion(ev.currentTarget, async () => { await guardar(); aviso('Presupuesto guardado', 'ok'); }) }, 'Guardar'),
       h('button.btn.primario', { onclick: ev => accion(ev.currentTarget, solicitar) }, 'Solicitar precio'))),
-    h('div.tarjeta.formulario', h('div.dos', h('label', 'Cliente', cliente), h('label', 'Fecha', fechaDoc)), h('h3', 'Partidas'), editor),
+    h('div.tarjeta.formulario', h('div.dos', h('label', 'Cliente', cliente), h('label', 'Fecha', fechaDoc)), h('h3', 'Partidas'),
+      h('div.anadir-producto', producto, h('button.btn', { type: 'button', onclick: anadirProducto }, 'Añadir producto')), editor),
     h('div.tarjeta', h('h2', 'Solicitudes a proveedores'), historial));
 }
