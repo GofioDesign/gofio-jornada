@@ -26,6 +26,7 @@ export async function vistaPresupuesto(app, id) {
   cliente.value = b?.cliente_id || '';
   const fechaDoc = h('input', { type: 'date', value: d.fecha || hoyISO(app.tz) });
   const editor = h('div.lineas-editor');
+  const totalEl = h('strong', eur(0));
   const historial = h('div');
   const producto = h('select', { 'aria-label': 'Producto del catálogo' },
     h('option', { value: '' }, 'Selecciona un producto…'),
@@ -42,13 +43,25 @@ export async function vistaPresupuesto(app, id) {
       unidad: p.unidad || 'ud', pvp: Number(p.pvp) || 0, coste: Number(p.coste_ud) || 0, igic: p.igic_pct, familia: p.familia });
     producto.value = ''; pintarLineas();
   };
-  const pintarLineas = () => montar(editor,
-    h('div.linea-pres.cabecera', { 'aria-hidden': 'true' }, ['Descripción', 'Cantidad', 'Unidad', 'PVP estimado', ''].map(x => h('span', x))),
-    lineas.map((l, i) => h('div.linea-pres',
-      campo(l, 'descripcion', 'Descripción', 'text'), campo(l, 'cantidad', 'Cantidad', 'number'), campo(l, 'unidad', 'Unidad', 'text'), campo(l, 'pvp', 'PVP estimado', 'number'),
-      h('button.btn.enlace.quitar', { type: 'button', title: 'Quitar línea', onclick: () => { lineas.splice(i, 1); if (!lineas.length) lineas.push(lineaLibre()); pintarLineas(); } }, '✕'))),
-    h('button.btn', { type: 'button', onclick: () => { lineas.push(lineaLibre()); pintarLineas(); } }, '+ Partida libre'));
-  const campo = (l, k, rotulo, type) => h('label', h('span.rotulo', rotulo), h('input', { type, step: type === 'number' ? 'any' : null, min: type === 'number' ? 0 : null, value: l[k] ?? '', oninput: e => { l[k] = type === 'number' ? Number(e.target.value) : e.target.value; } }));
+  const pintarLineas = () => {
+    const importes = [];
+    const recalcular = () => {
+      importes.forEach(({ l, el }) => { el.textContent = eur((Number(l.cantidad) || 0) * (Number(l.pvp) || 0)); });
+      totalEl.textContent = eur(total());
+    };
+    montar(editor,
+      h('div.linea-pres.cabecera', { 'aria-hidden': 'true' }, ['Descripción', 'Cantidad', 'Unidad', 'PVP unitario', 'Importe estimado', ''].map(x => h('span', x))),
+      lineas.map((l, i) => {
+        const importe = h('strong.importe-pres'); importes.push({ l, el: importe });
+        return h('div.linea-pres',
+          campo(l, 'descripcion', 'Descripción', 'text'), campo(l, 'cantidad', 'Cantidad', 'number', recalcular), campo(l, 'unidad', 'Unidad', 'text'),
+          campo(l, 'pvp', 'PVP unitario', 'number', recalcular), h('span.importe-pres-wrap', h('span.rotulo', 'Importe estimado'), importe),
+          h('button.btn.enlace.quitar', { type: 'button', title: 'Quitar línea', onclick: () => { lineas.splice(i, 1); if (!lineas.length) lineas.push(lineaLibre()); pintarLineas(); } }, '✕'));
+      }),
+      h('button.btn', { type: 'button', onclick: () => { lineas.push(lineaLibre()); pintarLineas(); } }, '+ Partida libre'));
+    recalcular();
+  };
+  const campo = (l, k, rotulo, type, alCambiar) => h('label', h('span.rotulo', rotulo), h('input', { type, step: type === 'number' ? 'any' : null, min: type === 'number' ? 0 : null, value: l[k] ?? '', oninput: e => { l[k] = type === 'number' ? Number(e.target.value) : e.target.value; alCambiar?.(); } }));
 
   const guardar = async () => {
     const datos = { fecha: fechaDoc.value, lineas: validas() };
@@ -90,6 +103,7 @@ export async function vistaPresupuesto(app, id) {
       h('button.btn', { onclick: ev => accion(ev.currentTarget, async () => { await guardar(); aviso('Presupuesto guardado', 'ok'); }) }, 'Guardar'),
       h('button.btn.primario', { onclick: ev => accion(ev.currentTarget, solicitar) }, 'Solicitar precio'))),
     h('div.tarjeta.formulario', h('div.dos', h('label', 'Cliente', cliente), h('label', 'Fecha', fechaDoc)), h('h3', 'Partidas'),
-      h('div.anadir-producto', producto, h('button.btn', { type: 'button', onclick: anadirProducto }, 'Añadir producto')), editor),
+      h('div.anadir-producto', producto, h('button.btn', { type: 'button', onclick: anadirProducto }, 'Añadir producto')), editor,
+      h('div.total-presupuesto', h('span', 'Total estimado'), totalEl)),
     h('div.tarjeta', h('h2', 'Solicitudes a proveedores'), historial));
 }
