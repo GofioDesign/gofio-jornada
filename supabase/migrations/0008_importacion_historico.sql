@@ -1,7 +1,7 @@
 -- Continúa correctamente la cadena de huellas al reanudar una importación parcial.
 create or replace function public.importar_historico_facturas(p_org uuid, p_facturas jsonb)
 returns int language plpgsql security definer set search_path = public as $$
-declare f jsonb; l jsonb; v_id uuid; n int := 0; i int; v_prev text; v_cli clientes;
+declare f jsonb; l jsonb; v_id uuid; n int := 0; i int; v_prev text; v_existente text; v_cli clientes;
 begin
   if not (puede_facturar(p_org) and tiene_rol(p_org, array['propietario']::rol_miembro[])) then raise exception 'Sin permiso'; end if;
   if jsonb_typeof(coalesce(p_facturas, '[]')) <> 'array' then raise exception 'Formato de importación no válido'; end if;
@@ -9,8 +9,8 @@ begin
   for f in select value from jsonb_array_elements(p_facturas)
            order by (value->>'fecha')::date, value->>'num'
   loop
-    select id, huella into v_id, v_prev from facturas where org_id = p_org and num = f->>'num';
-    if found then continue; end if;
+    select id, huella into v_id, v_existente from facturas where org_id = p_org and num = f->>'num';
+    if found then v_prev := v_existente; continue; end if;
 
     select * into v_cli from clientes where org_id = p_org and codigo = f->>'cliente_codigo';
     if not found then raise exception 'Cliente no encontrado para la factura %: %', f->>'num', f->>'cliente_codigo'; end if;

@@ -167,6 +167,12 @@ select public.importar_historico_facturas((select org from ctx), $$[
   "base":506.25,"igic":35.44,"irpf_pct":15,"irpf":75.94,"total":465.75,"huella":"11e01548234ce3a4212d621dc585bc1291d3499823fc029b374ee3f505f65103",
   "cobros":[{"fecha":"2026-02-02","importe":465.75}]}
 ]$$::jsonb);
+do $$ begin
+  if (select huella_anterior from facturas where num = 'EMIT26-0001') is distinct from
+     '844f1cfd67bcddafcb7135a7931452a1866751d348dfa572bb54e65d227dc5e0' then
+    raise exception 'cadena importada no continúa';
+  end if;
+end $$;
 
 -- horas pendientes del cliente B y factura con ellas
 do $$ declare h jsonb; f facturas; begin
