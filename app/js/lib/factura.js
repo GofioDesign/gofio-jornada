@@ -31,3 +31,34 @@ export function emisorDe(o = {}, igicDesglose = []) {
 
 // IRPF que aplica a un cliente: el suyo, el de la empresa, o 0 si no aplica.
 export const irpfCliente = (cliente, config = {}) => cliente?.aplica_irpf ? Number(cliente.irpf_pct ?? config.irpf_defecto ?? 15) : 0;
+
+// Categorías de factura (0014_categorias_factura.sql), en el orden en que salen en el documento.
+export const CATEGORIAS = ['MANO DE OBRA', 'MATERIALES', 'PEQUEÑO MATERIAL', 'TRANSPORTE', 'OTROS'];
+export const NOMBRE_CATEGORIA = { 'MANO DE OBRA': 'Mano de obra', MATERIALES: 'Materiales', 'PEQUEÑO MATERIAL': 'Pequeño material', TRANSPORTE: 'Transporte', OTROS: 'Otros' };
+export const AGRUPACIONES = { DETALLE: 'Línea a línea', CATEGORIAS: 'Agrupadas por categoría', RESUMEN: 'Un importe por categoría' };
+
+// Igual que public.categoria_de_familia.
+export function categoriaDeFamilia(familia) {
+  const f = String(familia || '').trim().toUpperCase();
+  if (['MANO DE OBRA', 'DISEÑO', 'SERVICIOS'].includes(f)) return 'MANO DE OBRA';
+  if (['MATERIALES', 'MATERIAL'].includes(f)) return 'MATERIALES';
+  if (['PEQUEÑO MATERIAL', 'FIJACIONES Y ACCESORIOS'].includes(f)) return 'PEQUEÑO MATERIAL';
+  if (['TRANSPORTE', 'DESPLAZAMIENTO'].includes(f)) return 'TRANSPORTE';
+  return 'OTROS';
+}
+export const categoriaDe = l => CATEGORIAS.includes(l?.categoria) ? l.categoria : categoriaDeFamilia(l?.familia);
+
+// Líneas calculadas ({ base, igic_pct, categoria | familia, ... }) agrupadas por categoría, con subtotal en céntimos exactos.
+export function porCategoria(lineas = []) {
+  return CATEGORIAS.map(categoria => {
+    const ls = lineas.filter(l => categoriaDe(l) === categoria);
+    return { categoria, lineas: ls, base: ls.reduce((s, l) => s + Math.round((Number(l.base) || 0) * 100), 0) / 100 };
+  }).filter(g => g.lineas.length);
+}
+
+// Una fila por categoría y tipo de IGIC (si una categoría mezcla tipos, sale una fila por tipo).
+export function resumenPorCategoria(lineas = []) {
+  return porCategoria(lineas).flatMap(g => [...new Set(g.lineas.map(l => Number(l.igic_pct) || 0))].sort((a, b) => a - b)
+    .map(igic_pct => ({ categoria: g.categoria, igic_pct,
+      base: g.lineas.filter(l => (Number(l.igic_pct) || 0) === igic_pct).reduce((s, l) => s + Math.round((Number(l.base) || 0) * 100), 0) / 100 })));
+}

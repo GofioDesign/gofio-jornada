@@ -230,6 +230,29 @@ do $$ declare f facturas; begin
     raise exception 'nota IGIC 0 %%: % %', f.igic, f.emisor; end if;
 end $$;
 
+-- Categorías de factura (0014): producto → categoría por familia; línea → la suya, la del producto o la de su familia
+insert into productos (org_id, codigo, familia, descripcion, unidad, pvp)
+values ((select org from ctx), 'TACO', 'FIJACIONES Y ACCESORIOS', 'Taco', 'ud', 0.42);
+do $$ declare f facturas; begin
+  if (select categoria from productos where codigo = 'PROD') <> 'MATERIALES'
+     or (select categoria from productos where codigo = 'TACO') <> 'PEQUEÑO MATERIAL'
+     or (select categoria from v_productos where codigo = 'TACO') <> 'PEQUEÑO MATERIAL' then raise exception 'categoría de producto'; end if;
+  f := public.emitir_factura((select org from ctx), (select id from clientes where codigo = 'B00000000'), '2026-09-24',
+        jsonb_build_array(
+          jsonb_build_object('descripcion', 'Material', 'cantidad', 2, 'pvp', 13, 'igic', 7, 'producto_id', (select id from productos where codigo = 'PROD')),
+          '{"descripcion":"Hora","cantidad":3,"pvp":35,"igic":7,"familia":"MANO DE OBRA"}'::jsonb,
+          '{"descripcion":"Desplazamiento","cantidad":1,"pvp":20,"igic":7,"familia":"MATERIALES","categoria":"TRANSPORTE"}'::jsonb),
+        0, null, null, null, null, null, null, null, 'RESUMEN');
+  if f.agrupacion <> 'RESUMEN' or f.base <> 151 then raise exception 'agrupación: % %', f.agrupacion, f.base; end if;
+  if (select string_agg(categoria, ',' order by linea) from facturas_lineas where factura_id = f.id)
+     <> 'MATERIALES,MANO DE OBRA,TRANSPORTE' then raise exception 'categoría de línea'; end if;
+  if (select agrupacion from v_facturas where id = f.id) <> 'RESUMEN' then raise exception 'v_facturas sin agrupación'; end if;
+end $$;
+select pg_temp.debe_fallar($$select public.emitir_factura((select org from ctx), (select id from clientes where codigo = 'B00000000'), '2026-09-24',
+  '[{"descripcion":"x","cantidad":1,"pvp":1,"igic":7}]', 0, null, null, null, null, null, null, null, 'OTRA')$$, 'facturas_agrupacion_check');
+select pg_temp.debe_fallar($$select public.emitir_factura((select org from ctx), (select id from clientes where codigo = 'B00000000'), '2026-09-24',
+  '[{"descripcion":"x","cantidad":1,"pvp":1,"igic":7,"categoria":"VARIOS"}]', 0)$$, 'facturas_lineas_categoria_check');
+
 select pg_temp.debe_fallar($$update facturas set total = 1$$, 'rectificativa');
 do $$ declare n int; begin delete from facturas; get diagnostics n = row_count; if n <> 0 then raise exception 'delete facturas'; end if; end $$;
 do $$ begin

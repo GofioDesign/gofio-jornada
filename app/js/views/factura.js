@@ -2,6 +2,7 @@
 // Idiomas: ES y EN. Los datos de emisor y cliente son los congelados al emitir.
 import { api } from '../api.js';
 import { h, montar } from '../ui.js';
+import { porCategoria, resumenPorCategoria } from '../lib/factura.js';
 
 export const TXT = {
   ES: {
@@ -9,14 +10,16 @@ export const TXT = {
     periodo: 'Periodo', cliente: 'Cliente', nif: 'NIF', desc: 'Descripción', cant: 'Cant.', precio: 'Precio', dto: 'Dto.',
     igic: 'IGIC', importe: 'Importe', base: 'Base imponible', sobre: 'sobre', irpf: 'Retención IRPF', total: 'Total',
     pago: 'Forma de pago', transferencia: 'Transferencia bancaria', motivo: 'Motivo',
-    obs: 'Observaciones', huella: 'Huella', borrador: 'Borrador',
+    obs: 'Observaciones', huella: 'Huella', borrador: 'Borrador', subtotal: 'Subtotal',
+    cat: { 'MANO DE OBRA': 'Mano de obra', MATERIALES: 'Materiales', 'PEQUEÑO MATERIAL': 'Pequeño material', TRANSPORTE: 'Transporte', OTROS: 'Otros' },
   },
   EN: {
     locale: 'en-IE', factura: 'Invoice', rectificativa: 'Corrective invoice', num: 'No.', fecha: 'Date', vence: 'Due date',
     periodo: 'Period', cliente: 'Bill to', nif: 'Tax ID', desc: 'Description', cant: 'Qty', precio: 'Price', dto: 'Disc.',
     igic: 'IGIC', importe: 'Amount', base: 'Taxable base', sobre: 'on', irpf: 'IRPF withholding', total: 'Total',
     pago: 'Payment', transferencia: 'Bank transfer', motivo: 'Reason',
-    obs: 'Notes', huella: 'Hash', borrador: 'Draft',
+    obs: 'Notes', huella: 'Hash', borrador: 'Draft', subtotal: 'Subtotal',
+    cat: { 'MANO DE OBRA': 'Labour', MATERIALES: 'Materials', 'PEQUEÑO MATERIAL': 'Small materials', TRANSPORTE: 'Transport', OTROS: 'Other' },
   },
 };
 
@@ -85,11 +88,7 @@ export function documento(f, t, logo) {
         [c.municipio !== c.localidad ? c.municipio : null, c.provincia].filter(Boolean).join(', '),
         c.pais && c.pais !== 'ESPAÑA' ? c.pais : null)),
     f.tipo_doc === 'RECTIFICATIVA' && f.motivo ? h('p.df-nota', h('strong', `${t.motivo}: `), f.motivo) : null,
-    h('table.df-lineas',
-      h('thead', h('tr', h('th', t.desc), h('th.n', t.cant), h('th.n', t.precio), conDto ? h('th.n', t.dto) : null, h('th.n', t.igic), h('th.n', t.importe))),
-      h('tbody', lineas.map(l => h('tr',
-        h('td', l.descripcion), h('td.n', `${num(l.cantidad)} ${l.unidad || ''}`.trim()), h('td.n', eur(l.pvp_ud)),
-        conDto ? h('td.n', Number(l.dto_pct) ? pct(l.dto_pct) : '') : null, h('td.n', pct(l.igic_pct)), h('td.n', eur(l.base)))))),
+    lineasDoc(f, lineas, t, { eur, num, pct, conDto }),
     h('table.df-totales', h('tbody',
       h('tr', h('th', t.base), h('td', eur(f.base))),
       desglose.map(d => h('tr', h('th', `${t.igic} ${pct(d.pct)} ${t.sobre} ${eur(d.base)}`), h('td', eur(d.cuota)))),
@@ -101,4 +100,25 @@ export function documento(f, t, logo) {
     f.observaciones ? h('p.df-nota', h('strong', `${t.obs}: `), f.observaciones) : null,
     f.huella ? h('footer.df-pie', `${t.huella}: ${f.huella}`) : null,
   ];
+}
+
+// Tabla de líneas según cómo se presenta la factura (facturas.agrupacion): DETALLE, CATEGORIAS o RESUMEN.
+function lineasDoc(f, lineas, t, { eur, num, pct, conDto }) {
+  const fila = l => h('tr',
+    h('td', l.descripcion), h('td.n', `${num(l.cantidad)} ${l.unidad || ''}`.trim()), h('td.n', eur(l.pvp_ud)),
+    conDto ? h('td.n', Number(l.dto_pct) ? pct(l.dto_pct) : '') : null, h('td.n', pct(l.igic_pct)), h('td.n', eur(l.base)));
+  const columnas = 5 + (conDto ? 1 : 0);
+  if (f.agrupacion === 'RESUMEN') {
+    return h('table.df-lineas',
+      h('thead', h('tr', h('th', t.desc), h('th.n', t.igic), h('th.n', t.importe))),
+      h('tbody', resumenPorCategoria(lineas).map(r => h('tr', h('td', t.cat[r.categoria]), h('td.n', pct(r.igic_pct)), h('td.n', eur(r.base))))));
+  }
+  const cabecera = h('thead', h('tr', h('th', t.desc), h('th.n', t.cant), h('th.n', t.precio), conDto ? h('th.n', t.dto) : null, h('th.n', t.igic), h('th.n', t.importe)));
+  if (f.agrupacion === 'CATEGORIAS') {
+    return h('table.df-lineas', cabecera, porCategoria(lineas).map(g => h('tbody.df-grupo',
+      h('tr.df-categoria', h('th', { colSpan: columnas, scope: 'colgroup' }, t.cat[g.categoria])),
+      g.lineas.map(fila),
+      h('tr.df-subtotal', h('td', { colSpan: columnas - 1 }, `${t.subtotal} ${t.cat[g.categoria].toLowerCase()}`), h('td.n', eur(g.base))))));
+  }
+  return h('table.df-lineas', cabecera, h('tbody', lineas.map(fila)));
 }

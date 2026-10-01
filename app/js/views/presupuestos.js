@@ -1,5 +1,6 @@
 import { api } from '../api.js';
 import { h, montar, accion, aviso, eur, fecha, hoyISO } from '../ui.js';
+import { categoriaDe } from '../lib/factura.js';
 
 export async function vistaPresupuestos(app) {
   const [presupuestos, clientes] = await Promise.all([api.presupuestos(app.org), api.clientes(app.org)]);
@@ -40,7 +41,7 @@ export async function vistaPresupuesto(app, id) {
     if (!p) return;
     if (lineas.length === 1 && !String(lineas[0].descripcion || '').trim()) lineas.splice(0, 1);
     lineas.push({ producto_id: p.id, codigo: p.codigo, descripcion: p.descripcion_factura || p.descripcion, cantidad: 1,
-      unidad: p.unidad || 'ud', pvp: Number(p.pvp) || 0, coste: Number(p.coste_ud) || 0, igic: p.igic_pct, familia: p.familia });
+      unidad: p.unidad || 'ud', pvp: Number(p.pvp) || 0, coste: Number(p.coste_ud) || 0, igic: p.igic_pct, familia: p.familia, categoria: categoriaDe(p) });
     producto.value = ''; pintarLineas();
   };
   const pintarLineas = () => {

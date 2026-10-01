@@ -2,19 +2,20 @@
 // hasta «Emitir factura»: entonces el servidor numera, calcula, congela los datos y encadena la huella.
 import { api } from '../api.js';
 import { h, montar, accion, aviso, eur, hoyISO, sumarDias } from '../ui.js';
-import { calcular, irpfCliente, emisorDe } from '../lib/factura.js';
+import { calcular, irpfCliente, emisorDe, categoriaDe, CATEGORIAS, AGRUPACIONES, NOMBRE_CATEGORIA } from '../lib/factura.js';
 import { documento, imprimir, TXT } from './factura.js';
 
 export async function vistaBorrador(app, id) {
   const nuevo = !id || id === 'nuevo';
-  const [clientes, b] = await Promise.all([api.clientes(app.org), nuevo ? null : api.borrador(app.org, id)]);
+  const [clientes, productos, b] = await Promise.all([api.clientes(app.org), api.productos(app.org).catch(() => []), nuevo ? null : api.borrador(app.org, id)]);
   if (!nuevo && !b) return h('p.vacio', 'Borrador no encontrado.');
   const cfg = app.e.config || {};
   const igicDefecto = Number(cfg.igic_defecto ?? 7);
   const d = structuredClone(b?.datos || {});
   let borradorId = b?.id || null;
-  const lineaVacia = () => ({ descripcion: '', cantidad: 1, unidad: 'ud', pvp: 0, dto: 0, igic: igicDefecto });
+  const lineaVacia = () => ({ descripcion: '', cantidad: 1, unidad: 'ud', pvp: 0, dto: 0, igic: igicDefecto, categoria: 'MANO DE OBRA' });
   const lineas = d.lineas?.length ? d.lineas : [lineaVacia()];
+  lineas.forEach(l => { l.categoria = categoriaDe(l); });
 
   const cliente = h('select', { id: 'b-cliente', onchange: () => { if (!irpfTocado) irpf.value = irpfCliente(cli(), cfg); idioma.value = cli()?.idioma === 'EN' ? 'EN' : 'ES'; previa(); } },
     h('option', { value: '' }, 'Elige cliente…'), clientes.filter(c => c.activo !== false || c.id === b?.cliente_id).map(c => h('option', { value: c.id }, c.nombre)));
@@ -27,11 +28,28 @@ export async function vistaBorrador(app, id) {
   const obs = h('textarea', { id: 'b-obs', rows: 2, value: d.observaciones || '', oninput: () => previa() });
   const idioma = h('select', { 'aria-label': 'Idioma del PDF', onchange: () => previa() }, h('option', { value: 'ES' }, 'Español'), h('option', { value: 'EN' }, 'English'));
   idioma.value = cli()?.idioma === 'EN' ? 'EN' : 'ES';
+  const agrupacion = h('select', { id: 'b-agrupacion', onchange: () => previa() },
+    Object.entries(AGRUPACIONES).map(([v, t]) => h('option', { value: v }, t)));
+  agrupacion.value = d.agrupacion || 'DETALLE';
+  const producto = h('select', { 'aria-label': 'Producto del catálogo' }, h('option', { value: '' }, 'Añadir producto del catálogo…'),
+    CATEGORIAS.map(cat => {
+      const ps = productos.filter(p => categoriaDe(p) === cat);
+      return ps.length ? h('optgroup', { label: NOMBRE_CATEGORIA[cat] }, ps.map(p => h('option', { value: p.id }, `${p.codigo} · ${p.descripcion_factura || p.descripcion}`))) : null;
+    }));
+  const anadirProducto = () => {
+    const p = productos.find(x => x.id === producto.value);
+    if (!p) return;
+    if (lineas.length === 1 && !String(lineas[0].descripcion || '').trim() && !Number(lineas[0].pvp)) lineas.splice(0, 1);
+    lineas.push({ producto_id: p.id, codigo: p.codigo, descripcion: p.descripcion_factura || p.descripcion, cantidad: 1, unidad: p.unidad || 'ud',
+      pvp: Number(p.pvp) || 0, dto: 0, igic: p.igic_pct ?? igicDefecto, coste: Number(p.coste_ud) || 0, familia: p.familia, categoria: categoriaDe(p) });
+    producto.value = ''; pintarLineas();
+  };
+  producto.addEventListener('change', anadirProducto);
   const editor = h('div.lineas-editor');
   const hoja = h('article.doc-factura');
 
   const validas = () => lineas.filter(l => String(l.descripcion || '').trim() || Number(l.pvp));
-  const datos = () => ({ fecha: fecha.value, irpf_pct: Number(irpf.value) || 0, observaciones: obs.value.trim() || null, lineas: validas(),
+  const datos = () => ({ fecha: fecha.value, irpf_pct: Number(irpf.value) || 0, observaciones: obs.value.trim() || null, lineas: validas(), agrupacion: agrupacion.value,
                          desde: d.desde || null, hasta: d.hasta || null, horas: d.horas || null });
 
   const importes = [];
@@ -41,7 +59,8 @@ export async function vistaBorrador(app, id) {
     importes.forEach((el, i) => { el.textContent = eur(porLinea[i]?.base); });
     const f = { borrador: true, fecha: fecha.value, vencimiento: fecha.value && sumarDias(fecha.value, Number(cfg.dias_vencimiento ?? 30)),
       periodo_desde: d.desde, periodo_hasta: d.hasta, cliente: cli() || {}, emisor: emisorDe(app.e, t.igic_desglose),
-      lineas: t.lineas.map(l => ({ descripcion: l.descripcion, cantidad: l.cantidad, unidad: l.unidad, pvp_ud: l.pvp, dto_pct: l.dto, igic_pct: l.igic, base: l.base })),
+      agrupacion: agrupacion.value,
+      lineas: t.lineas.map(l => ({ descripcion: l.descripcion, cantidad: l.cantidad, unidad: l.unidad, pvp_ud: l.pvp, dto_pct: l.dto, igic_pct: l.igic, base: l.base, categoria: l.categoria })),
       base: t.base, igic: t.igic, igic_desglose: t.igic_desglose, irpf_pct: Number(irpf.value) || 0, irpf: t.irpf, total: t.total, observaciones: obs.value.trim() };
     montar(hoja, ...documento(f, TXT[idioma.value], app.e.logo_url));
   };
@@ -52,11 +71,12 @@ export async function vistaBorrador(app, id) {
     const campo = (l, k, rotulo, attrs) => h('label.c-' + k, h('span.rotulo', rotulo),
       h('input', { ...attrs, value: l[k] ?? '', oninput: ev => { l[k] = attrs.type === 'number' ? (ev.target.value === '' ? '' : Number(ev.target.value)) : ev.target.value; previa(); } }));
     montar(editor,
-      h('div.linea-ed.cabecera', { 'aria-hidden': 'true' }, ['Descripción', 'Cant.', 'Ud.', 'Precio €', 'Dto. %', 'IGIC %', 'Importe', ''].map(x => h('span', x))),
+      h('div.linea-ed.cabecera', { 'aria-hidden': 'true' }, ['Descripción y categoría', 'Cant.', 'Ud.', 'Precio €', 'Dto. %', 'IGIC %', 'Importe', ''].map(x => h('span', x))),
       lineas.map((l, i) => {
         const imp = h('span.importe'); importes.push(imp);
         return h('div.linea-ed',
           campo(l, 'descripcion', 'Descripción', { type: 'text', placeholder: 'Descripción' }),
+          h('label.c-categoria', h('span.rotulo', 'Categoría'), selectCategoria(l, () => previa())),
           campo(l, 'cantidad', 'Cant.', { type: 'number', step: 'any', min: 0 }),
           campo(l, 'unidad', 'Ud.', { type: 'text' }),
           campo(l, 'pvp', 'Precio €', { type: 'number', step: '0.01' }),
@@ -66,7 +86,8 @@ export async function vistaBorrador(app, id) {
           h('button.btn.enlace.quitar', { type: 'button', 'aria-label': `Quitar línea ${i + 1}`, title: 'Quitar línea',
             onclick: () => { lineas.splice(i, 1); if (!lineas.length) lineas.push(lineaVacia()); pintarLineas(); } }, '✕'));
       }),
-      h('button.btn', { type: 'button', onclick: () => { lineas.push(lineaVacia()); pintarLineas(); [...editor.querySelectorAll('.linea-ed input')].at(-6)?.focus(); } }, '+ Añadir línea'));
+      h('div.acciones-lineas', producto,
+        h('button.btn', { type: 'button', onclick: () => { lineas.push(lineaVacia()); pintarLineas(); [...editor.querySelectorAll('.linea-ed input')].at(-6)?.focus(); } }, '+ Línea libre')));
     previa();
   };
 
@@ -105,7 +126,8 @@ export async function vistaBorrador(app, id) {
         h('div.dos', h('div', h('label', { for: 'b-cliente' }, 'Cliente'), cliente), h('div', h('label', { for: 'b-fecha' }, 'Fecha de la factura'), fecha)),
         d.horas?.length ? h('p.ayuda', `Incluye ${d.horas.length === 1 ? '1 registro' : d.horas.length + ' registros'} de jornada (${fechaCorta(d.desde)} – ${fechaCorta(d.hasta)}). Al emitir quedarán marcados como facturados.`) : null,
         h('h3', 'Líneas'), editor,
-        h('div.dos', h('div', h('label', { for: 'b-irpf' }, 'Retención IRPF (%)'), irpf), h('div')),
+        h('div.dos', h('div', h('label', { for: 'b-irpf' }, 'Retención IRPF (%)'), irpf),
+          h('div', h('label', { for: 'b-agrupacion' }, 'Cómo salen las líneas en la factura'), agrupacion)),
         h('label', { for: 'b-obs' }, 'Observaciones (salen en la factura)'), obs,
         h('div.acciones',
           h('button.btn', { onclick: ev => accion(ev.currentTarget, async () => { await guardar(); aviso('Borrador guardado', 'ok'); }) }, 'Guardar borrador'),
@@ -114,5 +136,12 @@ export async function vistaBorrador(app, id) {
       h('h2', 'Vista previa')),
     hoja);
 }
+
+const selectCategoria = (l, alCambiar) => {
+  const s = h('select', { 'aria-label': 'Categoría', onchange: ev => { l.categoria = ev.target.value; alCambiar?.(); } },
+    CATEGORIAS.map(c => h('option', { value: c }, NOMBRE_CATEGORIA[c])));
+  s.value = categoriaDe(l);
+  return s;
+};
 
 const fechaCorta = x => x ? new Date(x + 'T12:00:00').toLocaleDateString('es-ES') : '';
