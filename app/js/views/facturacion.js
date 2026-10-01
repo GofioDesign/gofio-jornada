@@ -73,9 +73,9 @@ async function facturarHoras(app, clienteId) {
     const out = [];
     const porPersona = {};
     trabajo.forEach(x => { porPersona[x.nombre || 'Equipo'] = (porPersona[x.nombre || 'Equipo'] || 0) + x.minutos; });
-    Object.entries(porPersona).forEach(([n, m]) => out.push({ producto_id: prodHora.id || null, codigo: prodHora.codigo || 'HORA', descripcion: `${prodHora.descripcion_factura || 'Horas de trabajo'} (${n}, ${fecha(desde.value)} – ${fecha(hasta.value)})`, cantidad: Math.round(m / 60 * 100) / 100, unidad: 'h', pvp: Number(precioHora.value) || 0, dto: 0, igic: prodHora.igic_pct ?? igic }));
+    Object.entries(porPersona).forEach(([n, m]) => out.push({ producto_id: prodHora.id || null, codigo: prodHora.codigo || 'HORA', descripcion: `${prodHora.descripcion_factura || 'Horas de trabajo'} (${n}, ${fecha(desde.value)} – ${fecha(hasta.value)})`, cantidad: Math.round(m / 60 * 100) / 100, unidad: 'h', pvp: Number(precioHora.value) || 0, dto: 0, igic: prodHora.igic_pct ?? igic, familia: prodHora.familia, categoria: 'MANO DE OBRA' }));
     const viajes = desp.reduce((s, x) => s + x.tramos, 0);
-    if (viajes) out.push({ producto_id: prodDesp.id || null, codigo: prodDesp.codigo || 'DESPL', descripcion: prodDesp.descripcion_factura || 'Desplazamiento', cantidad: viajes, unidad: 'ud', pvp: Number(precioDesp.value) || 0, dto: 0, igic: prodDesp.igic_pct ?? igic });
+    if (viajes) out.push({ producto_id: prodDesp.id || null, codigo: prodDesp.codigo || 'DESPL', descripcion: prodDesp.descripcion_factura || 'Desplazamiento', cantidad: viajes, unidad: 'ud', pvp: Number(precioDesp.value) || 0, dto: 0, igic: prodDesp.igic_pct ?? igic, familia: prodDesp.familia, categoria: 'TRANSPORTE' });
     return out;
   };
 

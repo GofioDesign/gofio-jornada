@@ -1,5 +1,6 @@
 import { api } from '../api.js';
 import { h, eur, fecha, accion, aviso, dialogo, puedeGestionar } from '../ui.js';
+import { categoriaDe, categoriaDeFamilia, CATEGORIAS, NOMBRE_CATEGORIA } from '../lib/factura.js';
 import { claveMargenFamilia, codigoDuplicado, costeUnitario, datosPrecio, margenObjetivo } from '../lib/precios.js';
 
 const pct = n => Number(n).toLocaleString('es-ES', { style: 'percent', maximumFractionDigits: 1 });
@@ -49,10 +50,16 @@ async function editarProducto(app, producto, proveedores, productos) {
   const proveedor = h('select', { id: 'prod-proveedor' }, h('option', { value: '' }, 'Sin proveedor habitual'),
     proveedores.filter(p => p.activo !== false || p.id === producto.proveedor_id)
       .map(p => h('option', { value: p.id, selected: p.id === producto.proveedor_id }, `${p.codigo} · ${p.nombre}${p.activo === false ? ' (inactivo)' : ''}`)));
+  const categoria = h('select', { id: 'prod-categoria' }, CATEGORIAS.map(c => h('option', { value: c }, NOMBRE_CATEGORIA[c])));
+  categoria.value = producto.id ? categoriaDe(producto) : categoriaDeFamilia(producto.familia);
+  let categoriaTocada = !!producto.id;
+  categoria.addEventListener('change', () => { categoriaTocada = true; });
   const precioInfo = h('div.precio-editor');
   const form = h('form.formulario',
     h('div.dos', h('div', campo('codigo', 'Código *', { required: true })), h('div', campo('familia', 'Familia *', { required: true, list: 'familias-producto' }))),
-    h('datalist', { id: 'familias-producto' }, ['MANO DE OBRA', 'MATERIALES', 'TRANSPORTE', 'FIJACIONES Y ACCESORIOS', 'SERVICIOS'].map(x => h('option', { value: x }))),
+    h('datalist', { id: 'familias-producto' }, ['MANO DE OBRA', 'MATERIALES', 'TRANSPORTE', 'FIJACIONES Y ACCESORIOS', 'PEQUEÑO MATERIAL', 'SERVICIOS'].map(x => h('option', { value: x }))),
+    h('label', { for: 'prod-categoria' }, 'Categoría en factura'), categoria,
+    h('p.ayuda', 'Sirve para agrupar las líneas de la factura: mano de obra, materiales, pequeño material o transporte.'),
     campo('descripcion', 'Descripción interna *', { required: true }), campo('descripcion_factura', 'Descripción para factura'),
     h('div.dos', h('div', campo('unidad', 'Unidad de venta *', { required: true })), h('div', h('label', { for: 'prod-proveedor' }, 'Proveedor habitual'), proveedor)),
     campo('ref_proveedor', 'Referencia del proveedor'),
@@ -72,12 +79,13 @@ async function editarProducto(app, producto, proveedores, productos) {
   };
   ['coste_compra', 'contenido_compra', 'pvp', 'familia'].forEach(id => form.querySelector('#prod-' + id).addEventListener('input', pintarPrecio));
   pintarPrecio();
+  form.querySelector('#prod-familia').addEventListener('input', ev => { if (!categoriaTocada) categoria.value = categoriaDeFamilia(ev.target.value); });
   const botones = [{ texto: 'Cancelar', valor: false }, {
     texto: 'Guardar', clase: 'primario', valor: async () => {
       if (!form.reportValidity()) return undefined;
       const v = id => form.querySelector('#prod-' + id).value.trim();
       const n = id => v(id) === '' ? null : Number(v(id));
-      const datos = { id: producto.id, codigo: v('codigo').toUpperCase(), familia: v('familia').toUpperCase(), descripcion: v('descripcion'),
+      const datos = { id: producto.id, codigo: v('codigo').toUpperCase(), familia: v('familia').toUpperCase(), categoria: categoria.value, descripcion: v('descripcion'),
         descripcion_factura: v('descripcion_factura') || null, unidad: v('unidad'), proveedor_id: proveedor.value || null,
         ref_proveedor: v('ref_proveedor') || null, unidad_compra: v('unidad_compra') || null,
         contenido_compra: n('contenido_compra') ?? 1, coste_compra: n('coste_compra') ?? 0,
@@ -91,7 +99,7 @@ async function editarProducto(app, producto, proveedores, productos) {
   }];
   if (producto.id) botones.unshift({ texto: 'Duplicar', valor: async () => {
     const codigo = codigoDuplicado(producto.codigo, productos.map(p => p.codigo));
-    const copia = { codigo, familia: producto.familia, descripcion: producto.descripcion, descripcion_factura: producto.descripcion_factura,
+    const copia = { codigo, familia: producto.familia, categoria: categoriaDe(producto), descripcion: producto.descripcion, descripcion_factura: producto.descripcion_factura,
       unidad: producto.unidad, proveedor_id: producto.proveedor_id, ref_proveedor: producto.ref_proveedor,
       unidad_compra: producto.unidad_compra, contenido_compra: producto.contenido_compra ?? 1,
       coste_compra: producto.coste_compra ?? producto.coste_ud ?? 0, coste_ud: producto.coste_ud ?? 0,
