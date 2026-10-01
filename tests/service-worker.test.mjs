@@ -24,3 +24,12 @@ test('la precache incluye todos los modulos de la aplicacion', async () => {
     assert.match(sw, new RegExp(`['"]${relativo.replaceAll('.', '\\.') }['"]`), `${relativo} no esta en la precache`);
   }
 });
+
+test('la version de config.js coincide con la cache del service worker', async () => {
+  const sw = await readFile(path.join(raiz, 'app', 'sw.js'), 'utf8');
+  const config = await readFile(path.join(raiz, 'app', 'config.js'), 'utf8');
+  const cache = sw.match(/CACHE\s*=\s*['"]gofio-jornada-v([^'"]+)['"]/)?.[1];
+  const version = config.match(/VERSION:\s*['"]([^'"]+)['"]/)?.[1];
+  assert.ok(cache && version, 'no se encuentra la version en sw.js o config.js');
+  assert.equal(version, cache, 'sube a la vez CACHE en app/sw.js y VERSION en app/config.js');
+});
