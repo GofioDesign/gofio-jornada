@@ -1,50 +1,40 @@
-# Puesta en marcha (unos 30 minutos, una sola vez)
+# Despliegue
 
-## 1. Repositorio en GitHub
-1. En GitHub: **New repository** → nombre `gofio-jornada`, **Private**, sin README.
-2. Sube este código:
-   ```bash
-   git init && git add . && git commit -m "Gofio Jornada 0.1"
-   git branch -M main
-   git remote add origin https://github.com/<tu-usuario>/gofio-jornada.git
-   git push -u origin main
-   ```
-   (O arrastra los archivos del .zip en la web de GitHub: «uploading an existing file».)
-3. La pestaña **Actions** ejecutará las pruebas en cada cambio.
+## Situación actual
 
-## 2. Base de datos en Supabase
-1. Crea una cuenta en <https://supabase.com> → **New project**.
-   - Región: **West EU (Ireland)** o **Central EU (Frankfurt)**, para que los datos se queden en la UE.
-   - Guarda la contraseña de la base de datos en tu gestor de contraseñas.
-2. **SQL Editor** → pega y ejecuta, **en orden**, cada archivo de `supabase/migrations/` (0001 → 0007).
-   **No** ejecutes nada de `supabase/tests/`: son pruebas para GitHub Actions y crean datos falsos.
-   *(Alternativa con la CLI: `supabase link` y después `supabase db push`.)*
-3. **Authentication → Providers → Email**: activado y con **«Confirm email» ACTIVADO**. Si se desactiva, cualquiera podría darse de alta con el email de otra persona y aceptar su invitación.
-4. **Authentication → URL Configuration**:
-   - *Site URL*: la URL de la app (paso 3), p. ej. `https://<tu-usuario>.github.io/gofio-jornada/`
-   - *Redirect URLs*: la misma URL y `http://localhost:8080` para pruebas.
-5. **Authentication → Emails**: traduce al español la plantilla «Magic Link» e incluye `{{ .Token }}`, para que también llegue el código de 6 cifras (útil si el enlace se abre en otro navegador).
-   Para enviar más de unos pocos correos por hora, configura un SMTP propio (p. ej. el de tu dominio o Brevo) en **Project Settings → Authentication → SMTP**.
-6. **Project Settings → API**: copia `Project URL` y la clave `anon public` en `app/config.js`:
-   ```js
-   SUPABASE_URL: 'https://xxxx.supabase.co',
-   SUPABASE_ANON_KEY: 'eyJ...',
-   ```
-   Esta clave es pública; la seguridad la pone RLS. **Nunca** pongas en la app la clave `service_role`.
+| Pieza | Dónde |
+|---|---|
+| Código | GitHub: `GofioDesign/gofio-jornada` (rama `main`) |
+| App publicada | <https://jornada.gofiodesign.eu> — GitHub Pages con dominio propio (archivo `CNAME`) |
+| Base de datos y acceso | Supabase, proyecto `zquhugdjxfinjqtdxjna` (región UE) |
+| Pruebas | GitHub Actions: `.github/workflows/pruebas.yml` en cada push y pull request |
+| Publicación | GitHub Actions: `.github/workflows/publicar.yml` publica `app/` al subir a `main` si `npm test` pasa |
 
-## 3. Publicar la app
-**GitHub Pages** (gratis): Settings → Pages → Source: **GitHub Actions**. Cada `push` a `main` publica la carpeta `app/` si las pruebas pasan.
-Para usar un dominio propio (p. ej. `jornada.gofiodesign.eu`), añádelo en Settings → Pages y crea el CNAME en tu DNS.
+## Flujo de trabajo habitual
 
-Otras opciones equivalentes: Cloudflare Pages o Netlify, apuntando al directorio `app/` sin comando de build.
+1. Trabaja en una rama y abre un pull request: se ejecutan las pruebas de la app y de la base de datos.
+2. Si el cambio toca la base de datos, crea un archivo **nuevo** en `supabase/migrations/` (el siguiente número libre, hoy `0014_...sql`). Las migraciones ya aplicadas **no se editan**.
+3. Cada función SQL nueva debe llevar
+   `revoke execute on function public.<nombre>(...) from public, anon;`
+   (las pruebas fallan si se olvida).
+4. Antes del merge, aplica la migración nueva en Supabase (**SQL Editor** → pegar → ejecutar, o `supabase db push` con la CLI).
+5. Sube la versión en `app/sw.js` (`CACHE`) y `app/config.js` (`VERSION`) — deben coincidir.
+6. Merge a `main` → se publica para todas las empresas a la vez.
 
-## 4. Primer uso
-1. Abre la app → escribe tu email → abre el enlace → **Crea tu empresa**.
-2. Ajustes → **Importar clientes**: en tu hoja actual, abre la pestaña CLIENTES y ve a *Archivo ▸ Descargar ▸ CSV*; después elige ese archivo en la app.
-3. Ajustes → **Invitar**: cada persona entra con su email y ve su invitación.
-4. En el móvil: menú del navegador → **Añadir a pantalla de inicio**.
+> El flujo de publicación ejecuta `npm test`, pero **no** las pruebas SQL. Espera a que el pull request esté en verde antes de hacer merge.
 
-## 5. Tareas de Gofio Design (consola SQL de Supabase)
+## Configuración de Supabase (comprobar)
+
+- **Authentication → Providers → Email**: activado, con **«Confirm email» ACTIVADO**. Si se desactiva, cualquiera podría darse de alta con el email de otra persona y aceptar su invitación.
+- **Authentication → URL Configuration**:
+  - *Site URL*: `https://jornada.gofiodesign.eu`
+  - *Redirect URLs*: `https://jornada.gofiodesign.eu` y `http://localhost:8080`
+- **Authentication → Emails**: plantilla «Magic Link» en español e incluyendo `{{ .Token }}` (código de 6 cifras, útil si el enlace se abre en otro navegador).
+- **SMTP propio** (Project Settings → Authentication → SMTP) para enviar más de unos pocos correos por hora.
+- **Project Settings → API**: en `app/config.js` solo van `Project URL` y la clave `anon public`. Esa clave es pública por diseño (la seguridad la pone RLS). **Nunca** pongas la clave `service_role` en la app ni en el repositorio.
+
+## Tareas de Gofio Design (consola SQL de Supabase)
+
 ```sql
 -- Activar la facturación a una empresa tester
 update organizaciones set tester_facturacion = true, usa_facturacion = true where nombre = 'Gofio Design';
@@ -55,8 +45,33 @@ update organizaciones set plan_id = 'pro', plan_hasta = '2027-09-30' where id = 
 -- Cambiar el límite del plan gratis o crear planes nuevos
 update planes set max_usuarios = 3 where id = 'gratis';
 ```
-Cuando vence `plan_hasta`, la empresa vuelve a tener los límites del plan gratis. **Sus datos no se tocan.**
 
-## 6. Actualizar a todos los clientes
-Hay un único código para todas las empresas: cada `push` a `main` actualiza la app de todas. Los cambios en la base de datos van en un **archivo de migración nuevo** (`0008_...sql`); los que ya se han aplicado no se editan.
-Cada función nueva debe llevar `revoke execute on function public.<nombre>(...) from public, anon;` (las pruebas fallan si se olvida).
+Cuando vence `plan_hasta`, la empresa vuelve a los límites del plan gratis. **Sus datos no se tocan.**
+(Mientras no exista el cobro con Stripe, el plan Pro se activa así, a mano.)
+
+## Primer uso de una empresa nueva
+
+1. Abre la app → email → enlace o código → **Crea tu empresa**.
+2. Ajustes → **Importar clientes**: en la hoja v7, pestaña CLIENTES → *Archivo ▸ Descargar ▸ CSV* → elegir el archivo en la app.
+3. Ajustes → **Invitar**: cada persona entra con su email y ve su invitación.
+4. En el móvil: menú del navegador → **Añadir a pantalla de inicio**.
+
+## Hosting y visibilidad del repositorio
+
+GitHub Pages solo publica desde repositorios **públicos** en el plan gratuito de GitHub. Para hacer el repositorio privado hay dos caminos:
+
+- **GitHub Pro** (de pago): Pages sigue funcionando desde el repositorio privado sin cambiar nada más. La web sigue siendo pública.
+- **Cloudflare Pages** (gratis): conectar el repositorio privado, sin comando de build obligatorio (o `npm test`), con `app` como directorio de salida, y mover allí el dominio `jornada.gofiodesign.eu`. Después se desactiva GitHub Pages y se borra `publicar.yml`.
+
+Hacer privado el repositorio no oculta nada de la web: el navegador sigue descargando `app/` (incluida la clave `anon`). Lo que deja de verse es el historial, las migraciones SQL y las pruebas.
+
+## Montar una instalación desde cero
+
+Solo hace falta para un entorno nuevo (por ejemplo, de pruebas).
+
+1. **Supabase** → New project, región **West EU (Ireland)** o **Central EU (Frankfurt)**.
+2. **SQL Editor** → ejecuta **en orden** todos los archivos de `supabase/migrations/` (0001 → la última). **No** ejecutes nada de `supabase/tests/`: crean datos falsos.
+   *(Alternativa: `supabase link` y `supabase db push`.)*
+3. Aplica la configuración de la sección «Configuración de Supabase» con la URL del nuevo entorno.
+4. Pon `SUPABASE_URL` y `SUPABASE_ANON_KEY` del proyecto nuevo en `app/config.js`.
+5. Publica `app/` en cualquier hosting estático (GitHub Pages con *Source: GitHub Actions*, Cloudflare Pages o Netlify), sin build.
