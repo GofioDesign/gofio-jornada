@@ -188,6 +188,7 @@ input[type=checkbox], input[type=radio] { width: 20px; min-height: 20px; height:
 .df-totales td { text-align: right; padding: 4px 0; white-space: nowrap; }
 .df-totales .df-total th, .df-totales .df-total td { border-top: 2px solid var(--t); padding-top: 8px; font-size: 1.1rem; font-weight: 700; color: var(--t); }
 .df-nota { margin: 0; }
+.df-obs { white-space: pre-line; }
 .df-pie { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--b); font-size: .7rem; color: var(--s); word-break: break-all; }
 @media (max-width: 560px) { .doc-factura { padding: 18px; } .df-titulo { text-align: left; } .df-titulo dl { justify-content: start; } }
 

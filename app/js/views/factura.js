@@ -97,7 +97,7 @@ export function documento(f, t, logo, logoTamano = 'M') {
     e.nota_igic && desglose.some(d => Number(d.pct) === 0) ? h('p.df-nota', e.nota_igic) : null,
     e.iban || e.pago ? h('section.df-pago', h('div.df-etiqueta', t.pago),
       bloque(e.pago || t.transferencia, e.iban && `IBAN: ${e.iban}`, e.bic && `BIC: ${e.bic}`)) : null,
-    f.observaciones ? h('p.df-nota', h('strong', `${t.obs}: `), f.observaciones) : null,
+    f.observaciones ? h('p.df-nota.df-obs', h('strong', `${t.obs}: `), String(f.observaciones).replace(/<br\s*\/?>/gi, '\n')) : null,
     f.huella ? h('footer.df-pie', `${t.huella}: ${f.huella}`) : null,
   ];
 }
