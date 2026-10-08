@@ -33,7 +33,7 @@ async function listado(app) {
   const pintar = () => {
     const q = buscar.value.toLowerCase();
     const r = facturas.filter(f => (!q || (f.num + ' ' + (f.cliente?.nombre || '')).toLowerCase().includes(q)) && (!estado.value || f.estado_cobro === estado.value));
-    const pend = r.reduce((s, f) => s + (Number(f.pendiente) || 0), 0);
+    const pend = r.filter(f => !['RECTIFICADA', 'ANULADA'].includes(f.estado_cobro)).reduce((s, f) => s + (Number(f.pendiente) || 0), 0);
     const abrir = f => { location.hash = '#/facturacion/factura/' + f.id; };
     tabla.replaceChildren(r.length ? h('table.tabla',
       h('thead', h('tr', h('th', 'Nº'), h('th', 'Fecha'), h('th', 'Cliente'), h('th.num', 'Total'), h('th', 'Estado'))),

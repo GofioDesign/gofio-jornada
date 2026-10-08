@@ -3,7 +3,7 @@
 //  - Modo DEMO: sin configurar nada; guarda en este navegador para probar la app.
 import { CONFIG } from '../config.js';
 import { estadoActual, tramos, totales, diaLocal } from './lib/jornada.js';
-import { calcular, irpfCliente, emisorDe, categoriaDe, conceptoDe } from './lib/factura.js';
+import { calcular, irpfCliente, emisorDe, categoriaDe, conceptoDe, motivoRectificativa } from './lib/factura.js';
 
 export const DEMO = !CONFIG.SUPABASE_URL || /\?demo|#demo/.test(location.href);
 
@@ -135,8 +135,13 @@ const supa = {
   async emitirFactura(org, d) {
     const c = await cliente();
     return ok(await c.rpc('emitir_factura', { p_org: org, p_cliente: d.cliente_id, p_fecha: d.fecha, p_lineas: d.lineas, p_irpf_pct: d.irpf_pct ?? null,
-      p_observaciones: d.observaciones || null, p_periodo_desde: d.desde || null, p_periodo_hasta: d.hasta || null, p_horas: d.horas || null, p_agrupacion: d.agrupacion || 'DETALLE',
+      p_observaciones: d.observaciones || null, p_periodo_desde: d.desde || null, p_periodo_hasta: d.hasta || null, p_horas: d.rectifica ? null : d.horas || null,
+      p_rectifica: d.rectifica?.id || null, p_motivo: d.rectifica ? motivoRectificativa(d.rectifica, d.motivo) : null, p_agrupacion: d.agrupacion || 'DETALLE',
       p_concepto: d.agrupacion === 'TOTAL' ? d.concepto || null : null }));
+  },
+  async corregirTextosFactura(id, x) {
+    const c = await cliente();
+    return ok(await c.rpc('corregir_textos_factura', { p_factura: id, p_lineas: x.lineas || [], p_concepto: x.concepto || null, p_observaciones: x.observaciones || null }));
   },
 };
 
@@ -323,13 +328,27 @@ const demo = {
     const t = calcular(x.lineas, x.irpf_pct ?? irpfCliente(c, o?.config));
     const lineas = t.lineas.map((l, i) => ({ linea: i + 1, codigo: l.codigo, descripcion: l.descripcion, cantidad: l.cantidad, unidad: l.unidad, pvp_ud: l.pvp,
       dto_pct: l.dto || 0, base: l.base, igic_pct: l.igic || 0, igic: l.cuota, familia: l.familia || null, categoria: categoriaDe(l), grupo: String(l.grupo || '').trim() || null }));
-    const f = { id: uid(), org_id: org, num: 'DEMO-' + String(n).padStart(4, '0'), tipo_doc: 'FACTURA', fecha: x.fecha, vencimiento: new Date(Date.parse(x.fecha) + 30 * 864e5).toISOString().slice(0, 10),
+    const orig = x.rectifica && d.facturas.find(y => y.id === x.rectifica.id);
+    if (x.rectifica && !String(x.motivo || '').trim()) throw new Error('Indica el motivo de la rectificación');
+    const f = { id: uid(), org_id: org, num: (orig ? 'RECT-' : 'DEMO-') + String(n).padStart(4, '0'), tipo_doc: orig ? 'RECTIFICATIVA' : 'FACTURA', fecha: x.fecha,
+      rectifica_a: orig?.id || null, motivo: orig ? motivoRectificativa(x.rectifica, x.motivo) : null, vencimiento: new Date(Date.parse(x.fecha) + 30 * 864e5).toISOString().slice(0, 10),
       periodo_desde: x.desde || null, periodo_hasta: x.hasta || null, cliente: { ...c }, emisor: emisorDe(o, t.igic_desglose),
       base: t.base, igic: t.igic, igic_desglose: t.igic_desglose, irpf_pct: x.irpf_pct ?? irpfCliente(c, o?.config), irpf: t.irpf, total: t.total,
       observaciones: x.observaciones || null, agrupacion: x.agrupacion || 'DETALLE',
       concepto: conceptoDe(x.agrupacion === 'TOTAL' ? x.concepto : '', x.lineas), lineas, huella: 'demo', estado_cobro: 'PENDIENTE' };
     d.facturas.unshift(f);
-    (x.horas || []).forEach(h => d.facturadas.push([x.cliente_id, h.user_id, h.dia, h.tipo].join('|')));
+    if (orig) Object.assign(orig, { estado: 'RECTIFICADA', estado_cobro: 'RECTIFICADA' });
+    if (!orig) (x.horas || []).forEach(h => d.facturadas.push([x.cliente_id, h.user_id, h.dia, h.tipo].join('|')));
+    guardar(d); return f;
+  },
+  async corregirTextosFactura(id, x) {
+    const d = db(); const f = d.facturas.find(y => y.id === id);
+    for (const l of x.lineas || []) {
+      if (!String(l.descripcion || '').trim()) throw new Error('Todas las líneas necesitan una descripción');
+      Object.assign(f.lineas.find(y => y.linea === l.linea), { descripcion: l.descripcion.trim(), grupo: String(l.grupo || '').trim() || null });
+    }
+    if (String(x.concepto || '').trim()) f.concepto = x.concepto.trim();
+    f.observaciones = String(x.observaciones || '').trim() || null; f.textos_corregidos_en = new Date().toISOString();
     guardar(d); return f;
   },
   async borradores(org) { return (db().borradores || []).filter(b => b.org_id === org && (b.tipo || 'FACTURA') === 'FACTURA').sort((a, b) => b.actualizado_en.localeCompare(a.actualizado_en)); },

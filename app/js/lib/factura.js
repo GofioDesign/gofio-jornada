@@ -105,3 +105,20 @@ export function anadirObs(actual = '', texto = '') {
   if (!t || a.includes(t)) return a;
   return a ? `${a}\n\n${t}` : t;
 }
+
+// Rectificativa (por sustitución): borrador con todo lo de la factura original, para corregir y emitir
+// en la serie RECT. Al emitirla, la original queda RECTIFICADA y deja de contar como pendiente.
+export const lineaDeFactura = l => ({ producto_id: l.producto_id || null, codigo: l.codigo || null, descripcion: l.descripcion,
+  cantidad: Number(l.cantidad), unidad: l.unidad || 'ud', pvp: Number(l.pvp_ud), dto: Number(l.dto_pct) || 0, igic: Number(l.igic_pct) || 0,
+  coste: Number(l.coste_ud) || 0, familia: l.familia || null, categoria: categoriaDe(l), grupo: l.grupo || '' });
+export const borradorRectificativo = (f, hoy) => ({
+  fecha: hoy, irpf_pct: Number(f.irpf_pct) || 0, observaciones: f.observaciones || null,
+  lineas: [...(f.lineas || [])].sort((a, b) => a.linea - b.linea).map(lineaDeFactura),
+  agrupacion: f.agrupacion || 'DETALLE', concepto: f.agrupacion === 'TOTAL' ? f.concepto || null : null,
+  desde: f.periodo_desde || null, hasta: f.periodo_hasta || null,
+  rectifica: { id: f.id, num: f.num, fecha: f.fecha }, motivo: '' });
+// Texto del motivo que sale en la rectificativa: siempre cita la factura que sustituye.
+export const motivoRectificativa = (r, motivo) => {
+  const [a, m, d] = String(r.fecha || '').split('-');
+  return `Rectifica la factura ${r.num}${d ? ` de ${d}/${m}/${a}` : ''}. ${String(motivo || '').trim()}`.trim();
+};
