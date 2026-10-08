@@ -88,7 +88,7 @@ export async function vistaBorrador(app, id) {
       agrupacion: agrupacion.value, concepto: concepto.value,
       lineas: t.lineas.map(l => ({ descripcion: l.descripcion, cantidad: l.cantidad, unidad: l.unidad, pvp_ud: l.pvp, dto_pct: l.dto, igic_pct: l.igic, base: l.base, categoria: l.categoria, grupo: l.grupo })),
       base: t.base, igic: t.igic, igic_desglose: t.igic_desglose, irpf_pct: Number(irpf.value) || 0, irpf: t.irpf, total: t.total, observaciones: obs.value.trim() };
-    montar(hoja, ...documento(f, TXT[idioma.value], app.e.logo_url));
+    montar(hoja, ...documento(f, TXT[idioma.value], app.e.logo_url, app.e.config?.logo_tamano));
   };
 
   const mover = (i, d) => {

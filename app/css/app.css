@@ -165,7 +165,8 @@ input[type=checkbox], input[type=radio] { width: 20px; min-height: 20px; height:
 .doc-factura { --t: #1d231f; --s: #5f6b63; --b: #dcd6ca; background: #fff; color: var(--t); border-radius: 6px; box-shadow: var(--sombra);
   padding: 32px; font-size: .9rem; line-height: 1.4; display: flex; flex-direction: column; gap: 22px; overflow-x: auto; }
 .df-cab { display: flex; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
-.df-logo { display: block; max-width: 60mm; max-height: 22mm; object-fit: contain; object-position: left; margin-bottom: 8px; }
+.df-logo { display: block; max-width: 75mm; max-height: 30mm; object-fit: contain; object-position: left; margin-bottom: 8px; }
+.df-logo.t-S { max-width: 55mm; max-height: 20mm; } .df-logo.t-L { max-width: 100mm; max-height: 45mm; }
 .df-marca { display: block; font-size: 1.25rem; color: #1f3a2e; margin-bottom: 4px; }
 .df-emisor div, .df-cliente div, .df-pago div { color: var(--s); }
 .df-titulo { text-align: right; }
