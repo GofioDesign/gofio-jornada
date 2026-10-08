@@ -85,6 +85,8 @@ input[type=checkbox], input[type=radio] { width: 20px; min-height: 20px; height:
 .linea-tiempo li.pausa { border-color: var(--pausa); color: var(--suave); }
 .linea-tiempo li.desplazamiento { border-color: var(--acento); }
 .linea-tiempo .horas { font-variant-numeric: tabular-nums; color: var(--suave); font-size: .9rem; }
+.linea-tiempo .asignar { display: block; padding: 2px 0; font-size: .85rem; }
+.nav-dia { display: flex; gap: 6px; }
 .linea-tiempo .dur { font-variant-numeric: tabular-nums; font-size: .9rem; }
 .totales { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
 .totales div { background: var(--fondo); border-radius: 10px; padding: 8px 10px; }

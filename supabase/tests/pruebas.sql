@@ -287,6 +287,38 @@ select pg_temp.debe_fallar(format($q$update miembros set rol = 'admin' where org
 select pg_temp.debe_fallar(format($q$update miembros set activo = false where org_id = %L and user_id = '00000000-0000-0000-0000-00000000000a'$q$, (select org from ctx)), 'propietario');
 select pg_temp.debe_fallar(format($q$update miembros set rol = 'propietario' where org_id = %L and user_id = '00000000-0000-0000-0000-00000000000b'$q$, (select org from ctx)), 'propietario');
 
+-- ===== 8. Asignar cliente a horas ya fichadas (0015) =====
+select pg_temp.como('00000000-0000-0000-0000-00000000000b', 'empleado@gofio.test');
+create temp table entrada as select momento from public.fichar((select org from ctx), 'ENTRADA');  -- sin cliente
+grant all on entrada to authenticated;
+do $$ declare v_org uuid := (select org from ctx); m timestamptz := (select momento from entrada);
+  x uuid := (select id from clientes where codigo = 'X2241917S'); c fichajes;
+begin
+  -- el empleado lo solicita: queda pendiente y no cambia nada todavía
+  c := public.asignar_cliente(v_org, m, x);
+  if c.estado <> 'PENDIENTE' or c.tipo <> 'CAMBIO_CLIENTE' then raise exception 'asignación del empleado: %', c.estado; end if;
+  if (select t.cliente_id from public.tramos_jornada(v_org, current_date - 1, current_date + 1) t where t.fin is null) is not null then
+    raise exception 'una asignación pendiente no debe contar'; end if;
+  -- no puede asignar horas de otra persona
+  begin perform public.asignar_cliente(v_org, m, x, '00000000-0000-0000-0000-00000000000a'); raise exception 'DEBÍA FALLAR';
+  exception when others then if sqlerrm not like 'Sin permiso%' then raise; end if; end;
+  -- el propietario la aplica directamente
+  perform set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+  c := public.asignar_cliente(v_org, m, x, '00000000-0000-0000-0000-00000000000b');
+  if c.estado <> 'APROBADA' then raise exception 'asignación del propietario: %', c.estado; end if;
+  if (select t.cliente_id from public.tramos_jornada(v_org, current_date - 1, current_date + 1, '00000000-0000-0000-0000-00000000000b') t
+      where t.fin is null) is distinct from x then raise exception 'el tramo abierto no pasó al cliente X'; end if;
+  -- no cuenta como corrección del horario
+  if exists (select 1 from public.resumen_jornada(v_org, current_date - 1, current_date + 1, '00000000-0000-0000-0000-00000000000b') r
+             where r.abierta and r.correcciones > 0) then raise exception 'la asignación cuenta como corrección'; end if;
+end $$;
+select pg_temp.como('00000000-0000-0000-0000-00000000000a', 'propietario@gofio.test');
+select pg_temp.debe_fallar(format($q$select public.asignar_cliente(%L, now() + interval '1 hour', (select id from clientes where codigo = 'X2241917S'))$q$, (select org from ctx)), 'futura');
+select pg_temp.debe_fallar(format($q$select public.asignar_cliente(%L, timestamptz '2026-09-21 03:00 Atlantic/Canary', (select id from clientes where codigo = 'X2241917S'), '00000000-0000-0000-0000-00000000000b')$q$, (select org from ctx)), 'no hay trabajo');
+-- las horas de un día ya facturado no se reasignan
+select pg_temp.debe_fallar(format($q$select public.asignar_cliente(%L, timestamptz '2026-09-21 13:00 Atlantic/Canary', (select id from clientes where codigo = 'X2241917S'), '00000000-0000-0000-0000-00000000000b')$q$, (select org from ctx)), 'facturadas');
+select pg_temp.debe_fallar(format($q$select public.asignar_cliente(%L, now() - interval '1 min', null)$q$, (select org from ctx)), 'Elige un cliente');
+
 -- un visitante SIN sesión (anon) no puede ejecutar ninguna función
 reset role;
 select pg_temp.como('', '');

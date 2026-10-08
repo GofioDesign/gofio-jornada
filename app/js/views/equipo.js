@@ -23,7 +23,7 @@ export async function vistaEquipo(app) {
   // ---------- correcciones ----------
   const correcciones = pendientes.length ? h('div.tarjeta.destacada', h('h2', `Correcciones pendientes (${pendientes.length})`),
     pendientes.map(f => h('div.fila',
-      h('div', h('strong', nombre(f.user_id)), h('div', `${TIPOS[f.tipo]} · ${fecha(diaLocal(Date.parse(f.momento_declarado), app.tz))} a las ${hora(f.momento_declarado, app.tz)}`), h('small.ayuda', f.motivo)),
+      h('div', h('strong', nombre(f.user_id)), h('div', `${TIPOS[f.tipo]}${f.tipo === 'CAMBIO_CLIENTE' ? ' ' + (cli(f.cliente_id) || 'cliente') : ''} · ${fecha(diaLocal(Date.parse(f.momento_declarado), app.tz))} a las ${hora(f.momento_declarado, app.tz)}`), h('small.ayuda', f.motivo)),
       h('div.fila-botones',
         h('button.btn', { onclick: e => accion(e.currentTarget, async () => { await api.revisarCorreccion(f.id, false); aviso('Rechazada'); window.dispatchEvent(new HashChangeEvent('hashchange')); }) }, 'Rechazar'),
         h('button.btn.primario', { onclick: e => accion(e.currentTarget, async () => { await api.revisarCorreccion(f.id, true); aviso('Aprobada', 'ok'); window.dispatchEvent(new HashChangeEvent('hashchange')); }) }, 'Aprobar'))))) : null;

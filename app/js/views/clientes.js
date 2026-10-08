@@ -82,7 +82,8 @@ export async function vistaCliente(app, id) {
       puedeEditar(app.rol) ? h('button.btn', { onclick: () => editar(app, c) }, 'Editar') : null));
 }
 
-async function editar(app, c) {
+/** Alta o edición de un cliente. Devuelve el cliente guardado, o null si se cancela. */
+export async function editar(app, c, { recargar = true } = {}) {
   const campo = (k, etiqueta, attrs = {}) => {
     const i = h('input', { id: 'f-' + k, value: c[k] ?? '', ...attrs });
     return [h('label', { for: 'f-' + k }, etiqueta), i];
@@ -97,7 +98,7 @@ async function editar(app, c) {
     campo('email', 'Email', { type: 'email' }),
     h('label', { for: 'f-notas' }, 'Notas'), h('textarea', { id: 'f-notas', rows: 2, value: c.notas || '' }),
     h('label.check', h('input', { type: 'checkbox', id: 'f-activo', checked: c.activo !== false }), ' Activo'));
-  await dialogo(c.id ? 'Editar cliente' : 'Nuevo cliente', form, [
+  return dialogo(c.id ? 'Editar cliente' : 'Nuevo cliente', form, [
     { texto: 'Cancelar', valor: false },
     {
       texto: 'Guardar', clase: 'primario', valor: async () => {
@@ -105,9 +106,11 @@ async function editar(app, c) {
         const v = k => form.querySelector('#f-' + k).value.trim() || null;
         const datos = { id: c.id, nombre: v('nombre'), codigo: v('codigo').toUpperCase(), direccion: v('direccion'), cp: v('cp'), localidad: v('localidad'),
           municipio: v('municipio'), provincia: v('provincia'), telefono: v('telefono'), email: v('email'), notas: v('notas'), activo: form.querySelector('#f-activo').checked };
-        const ok = await accion(null, async () => { await api.guardarCliente(app.org, datos); return true; });
-        if (!ok) return undefined;
-        aviso('Cliente guardado', 'ok'); window.dispatchEvent(new HashChangeEvent('hashchange')); return true;
+        const guardado = await accion(null, () => api.guardarCliente(app.org, datos));
+        if (!guardado) return undefined;
+        aviso('Cliente guardado', 'ok');
+        if (recargar) window.dispatchEvent(new HashChangeEvent('hashchange'));
+        return guardado;
       },
     }]);
 }
