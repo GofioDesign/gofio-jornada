@@ -3,6 +3,7 @@ import { h, montar, aviso, preferencia, puedeVerEquipo, puedeGestionar } from '.
 import { vistaLogin, vistaAlta } from './views/acceso.js';
 import { vistaJornada } from './views/jornada.js';
 import { vistaClientes, vistaCliente } from './views/clientes.js';
+import { vistaProyectos, vistaProyecto } from './views/proyectos.js';
 import { vistaEquipo } from './views/equipo.js';
 import { vistaAjustes } from './views/ajustes.js';
 import { vistaFacturacion } from './views/facturacion.js';
@@ -39,6 +40,7 @@ function pintarMenu(ruta) {
   const items = [
     ['#/', 'Jornada', 'reloj'],
     ['#/clientes', 'Clientes', 'pin'],
+    ['#/proyectos', 'Proyectos', 'carpeta'],
     puedeVerEquipo(app.rol) && ['#/equipo', 'Equipo', 'equipo'],
     app.facturacion && ['#/facturacion', 'Facturación', 'factura'],
     ['#/ajustes', 'Ajustes', 'ajustes'],
@@ -60,6 +62,7 @@ async function router() {
     let v;
     switch (seccion) {
       case 'clientes': v = id ? await vistaCliente(app, id) : await vistaClientes(app); break;
+      case 'proyectos': v = id ? await vistaProyecto(app, id) : await vistaProyectos(app); break;
       case 'equipo': v = puedeVerEquipo(app.rol) ? await vistaEquipo(app) : null; break;
       case 'ajustes': v = await vistaAjustes(app, id); break;
       case 'facturacion': v = app.facturacion ? await vistaFacturacion(app, id, sub) : null; break;

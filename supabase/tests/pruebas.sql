@@ -319,6 +319,59 @@ select pg_temp.debe_fallar(format($q$select public.asignar_cliente(%L, timestamp
 select pg_temp.debe_fallar(format($q$select public.asignar_cliente(%L, timestamptz '2026-09-21 13:00 Atlantic/Canary', (select id from clientes where codigo = 'X2241917S'), '00000000-0000-0000-0000-00000000000b')$q$, (select org from ctx)), 'facturadas');
 select pg_temp.debe_fallar(format($q$select public.asignar_cliente(%L, now() - interval '1 min', null)$q$, (select org from ctx)), 'Elige un cliente');
 
+-- ===== 9. Proyectos (0016) =====
+select pg_temp.como('00000000-0000-0000-0000-00000000000a', 'propietario@gofio.test');
+insert into proyectos (org_id, nombre, tipo, cliente_id) values
+  ((select org from ctx), 'Reforma cocina', 'AJENO', (select id from clientes where codigo = 'X2241917S')),
+  ((select org from ctx), 'Web propia', 'PROPIO', null),
+  ((select org from ctx), 'Obra jardín', 'AJENO', (select id from clientes where codigo = 'B00000000'));
+insert into proyectos (org_id, nombre, activo) values ((select org from ctx), 'Cerrado', false);
+select pg_temp.como('00000000-0000-0000-0000-00000000000b', 'empleado@gofio.test');
+-- el empleado los ve pero no los crea
+select pg_temp.debe_fallar($$insert into proyectos (org_id, nombre) values ((select org from ctx), 'X')$$, 'row-level security');
+do $$ declare v_org uuid := (select org from ctx); f fichajes; t record;
+  x uuid := (select id from clientes where codigo = 'X2241917S'); b uuid := (select id from clientes where codigo = 'B00000000');
+  cocina uuid := (select id from proyectos where nombre = 'Reforma cocina'); web uuid := (select id from proyectos where nombre = 'Web propia');
+begin
+  if (select count(*) from proyectos) <> 4 then raise exception 'el empleado no ve los proyectos'; end if;
+  -- (la jornada del empleado sigue abierta desde la sección 8)
+  -- un proyecto con cliente pone también el cliente
+  select * into f from public.fichar(v_org, 'CAMBIO_CLIENTE', p_proyecto => cocina);
+  if f.cliente_id is distinct from x or f.proyecto_id is distinct from cocina then raise exception 'proyecto con cliente: % %', f.cliente_id, f.proyecto_id; end if;
+  select * into t from public.tramos_jornada(v_org, current_date - 1, current_date + 1) where fin is null;
+  if t.proyecto_id is distinct from cocina or t.cliente_id is distinct from x then raise exception 'tramo abierto sin el proyecto'; end if;
+  -- un proyecto propio sin cliente vale por sí solo
+  select * into f from public.fichar(v_org, 'CAMBIO_CLIENTE', p_proyecto => web);
+  if f.cliente_id is not null or f.proyecto_id is distinct from web then raise exception 'proyecto propio'; end if;
+  -- la pausa no se imputa al proyecto, y al reanudar se sigue en él
+  perform public.fichar(v_org, 'PAUSA');
+  perform public.fichar(v_org, 'REANUDAR');
+  select * into t from public.tramos_jornada(v_org, current_date - 1, current_date + 1) where fin is null;
+  if t.proyecto_id is distinct from web then raise exception 'al reanudar se pierde el proyecto'; end if;
+end $$;
+-- asignar a posteriori también admite proyecto (el empleado lo solicita; en otra transacción, para que now() sea posterior)
+do $$ declare f fichajes; cocina uuid := (select id from proyectos where nombre = 'Reforma cocina'); begin
+  f := public.asignar_cliente((select org from ctx), (select max(momento) from fichajes where tipo = 'REANUDAR' and origen = 'APP'), null, null, cocina);
+  if f.estado <> 'PENDIENTE' or f.cliente_id is distinct from (select id from clientes where codigo = 'X2241917S')
+     or f.proyecto_id is distinct from cocina then raise exception 'asignar proyecto'; end if;
+end $$;
+select pg_temp.debe_fallar($$select public.fichar((select org from ctx), 'CAMBIO_CLIENTE', p_proyecto => (select id from proyectos where nombre = 'Cerrado'))$$, 'cerrado');
+select pg_temp.debe_fallar($$select public.fichar((select org from ctx), 'CAMBIO_CLIENTE', p_cliente => (select id from clientes where codigo = 'X2241917S'), p_proyecto => (select id from proyectos where nombre = 'Obra jardín'))$$, 'otro cliente');
+select pg_temp.debe_fallar($$select public.fichar((select org from ctx), 'CAMBIO_CLIENTE')$$, 'Elige un cliente o un proyecto');
+-- un proyecto con horas no se puede borrar (se cierra)
+select pg_temp.como('00000000-0000-0000-0000-00000000000a', 'propietario@gofio.test');
+select pg_temp.debe_fallar($$delete from proyectos where nombre = 'Web propia'$$, 'foreign key');
+-- otra empresa no ve los proyectos
+select pg_temp.como('00000000-0000-0000-0000-00000000000c', 'otra@empresa.test');
+do $$ begin if exists (select 1 from proyectos) then raise exception 'fuga de proyectos'; end if; end $$;
+reset role;
+-- la cadena de huellas sigue intacta con proyectos
+do $$ begin
+  if exists (select 1 from (select huella_anterior, lag(huella) over (partition by user_id order by momento, id) prev from fichajes) x
+             where x.huella_anterior is distinct from x.prev) then raise exception 'cadena rota'; end if;
+end $$;
+set role authenticated;
+
 -- un visitante SIN sesión (anon) no puede ejecutar ninguna función
 reset role;
 select pg_temp.como('', '');
