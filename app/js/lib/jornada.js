@@ -41,7 +41,9 @@ export function accionesPosibles(st) {
  *              null = día pasado: los tramos sin cerrar no cuentan (igual que en SQL).
  */
 export function tramos(fichajes, ahora = Date.now()) {
-  const ev = fichajes.filter(efectivo).sort((a, b) => t(a) - t(b));
+  // A igual hora efectiva, va antes lo registrado antes (como en SQL): así una asignación
+  // de cliente a posteriori se aplica después de la ENTRADA de esa misma hora.
+  const ev = fichajes.filter(efectivo).sort((a, b) => t(a) - t(b) || Date.parse(a.momento) - Date.parse(b.momento));
   const out = [];
   let st = 'FUERA', segIni = null, segCli = null, cli = null, d = null;
   const cerrar = (fin) => {

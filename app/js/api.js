@@ -71,6 +71,7 @@ const supa = {
   async resumen(org, desde, hasta, user) { const c = await cliente(); return ok(await c.rpc('resumen_jornada', { p_org: org, p_desde: desde, p_hasta: hasta, p_user: user || null })); },
   async tramos(org, desde, hasta, user) { const c = await cliente(); return ok(await c.rpc('tramos_jornada', { p_org: org, p_desde: desde, p_hasta: hasta, p_user: user || null })); },
   async solicitarCorreccion(org, tipo, momento, motivo) { const c = await cliente(); return ok(await c.rpc('solicitar_correccion', { p_org: org, p_tipo: tipo, p_momento: momento, p_motivo: motivo })); },
+  async asignarCliente(org, momento, cliente_id, user) { const c = await cliente(); return ok(await c.rpc('asignar_cliente', { p_org: org, p_momento: momento, p_cliente: cliente_id, p_user: user || null })); },
   async correccionesPendientes(org) { const c = await cliente(); return ok(await c.from('fichajes').select('*').eq('org_id', org).eq('estado', 'PENDIENTE').order('momento')); },
   async revisarCorreccion(id, aprobar) { const c = await cliente(); return ok(await c.rpc('revisar_correccion', { p_id: id, p_aprobar: aprobar })); },
 
@@ -224,6 +225,10 @@ const demo = {
   },
   async solicitarCorreccion(org, tipo, momento, motivo) {
     const d = db(); d.fichajes.push({ id: uid(), org_id: org, user_id: 'demo-user', tipo, momento: new Date().toISOString(), momento_declarado: momento, motivo, origen: 'CORRECCION', estado: 'PENDIENTE' }); guardar(d);
+  },
+  async asignarCliente(org, momento, cliente_id) {
+    const d = db(); const f = { id: uid(), org_id: org, user_id: 'demo-user', tipo: 'CAMBIO_CLIENTE', cliente_id, momento: new Date().toISOString(), momento_declarado: momento, motivo: 'Cliente asignado a posteriori', origen: 'RESPONSABLE', estado: 'APROBADA' };
+    d.fichajes.push(f); guardar(d); return f;
   },
   async correccionesPendientes(org) { return db().fichajes.filter(f => f.org_id === org && f.estado === 'PENDIENTE'); },
   async revisarCorreccion(id, aprobar) { const d = db(); const f = d.fichajes.find(x => x.id === id); f.estado = aprobar ? 'APROBADA' : 'RECHAZADA'; guardar(d); },

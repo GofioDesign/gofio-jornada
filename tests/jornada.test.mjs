@@ -34,6 +34,19 @@ test('correcciones: solo cuentan las aprobadas, con su hora declarada', () => {
   assert.equal(totales(tr).trabajo, 120 + 390);
 });
 
+test('asignar cliente a posteriori: se aplica desde la hora declarada y no cambia el total', () => {
+  const sinCliente = [{ tipo: 'ENTRADA', momento: h('08:00') }, { tipo: 'PAUSA', momento: h('10:00') },
+    { tipo: 'REANUDAR', momento: h('10:30') }, { tipo: 'SALIDA', momento: h('14:00') }];
+  const asignada = { tipo: 'CAMBIO_CLIENTE', cliente_id: 'X', momento: h('18:00'), momento_declarado: h('08:00'), origen: 'RESPONSABLE', estado: 'APROBADA' };
+  const otra = { tipo: 'CAMBIO_CLIENTE', cliente_id: 'B', momento: h('18:05'), momento_declarado: h('10:30'), origen: 'RESPONSABLE', estado: 'APROBADA' };
+  const pendiente = { ...otra, cliente_id: 'Z', momento: h('18:10'), origen: 'CORRECCION', estado: 'PENDIENTE' };
+  const s = totales(tramos([...sinCliente, asignada, otra, pendiente]));
+  assert.equal(s.trabajo, 120 + 210);
+  assert.deepEqual(s.porCliente, { X: 120, B: 210 });
+  // aunque lleguen desordenadas, la asignación va después de la ENTRADA de la misma hora
+  assert.deepEqual(totales(tramos([asignada, ...sinCliente])).porCliente, { X: 330 });
+});
+
 test('jornada abierta cuenta hasta ahora', () => {
   const tr = tramos(dia.slice(0, 3), new Date(h('11:00')).getTime());
   assert.equal(totales(tr).trabajo, 150);
