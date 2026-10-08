@@ -47,6 +47,19 @@ test('asignar cliente a posteriori: se aplica desde la hora declarada y no cambi
   assert.deepEqual(totales(tramos([asignada, ...sinCliente])).porCliente, { X: 330 });
 });
 
+test('proyectos: las horas van al proyecto (y a su cliente); la pausa no, y al reanudar se sigue en él', () => {
+  const tr = tramos([
+    { tipo: 'ENTRADA', momento: h('08:00'), cliente_id: 'X', proyecto_id: 'P1' },
+    { tipo: 'PAUSA', momento: h('10:00') }, { tipo: 'REANUDAR', momento: h('10:30') },
+    { tipo: 'CAMBIO_CLIENTE', momento: h('12:00'), proyecto_id: 'P2' },
+    { tipo: 'SALIDA', momento: h('13:00') }]);
+  const s = totales(tr);
+  assert.deepEqual(s.porProyecto, { P1: 210, P2: 60 });
+  assert.deepEqual(s.porCliente, { X: 210, '': 60 });
+  assert.equal(tr.find(x => x.tipo === 'PAUSA').proyecto_id, null);
+  assert.equal(estadoActual([{ tipo: 'ENTRADA', momento: h('08:00'), proyecto_id: 'P1' }]).proyecto_id, 'P1');
+});
+
 test('jornada abierta cuenta hasta ahora', () => {
   const tr = tramos(dia.slice(0, 3), new Date(h('11:00')).getTime());
   assert.equal(totales(tr).trabajo, 150);

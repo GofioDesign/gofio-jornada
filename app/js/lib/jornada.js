@@ -12,19 +12,23 @@ const efectivo = f => f.origen === 'APP' || f.origen === undefined || f.estado =
 /** Estado actual a partir de los fichajes de la app (ordenados o no). */
 export function estadoActual(fichajes) {
   const app = fichajes.filter(f => (f.origen || 'APP') === 'APP').sort((a, b) => t(a) - t(b));
-  let estado = 'FUERA', desde = null, desp = null, cliente = null;
+  let estado = 'FUERA', desde = null, desp = null, cliente = null, proyecto = null;
   for (const f of app) {
     switch (f.tipo) {
-      case 'ENTRADA': estado = 'TRABAJANDO'; desde = t(f); cliente = f.cliente_id || null; break;
+      case 'ENTRADA': estado = 'TRABAJANDO'; desde = t(f); cliente = f.cliente_id || null; proyecto = f.proyecto_id || null; break;
       case 'PAUSA': estado = 'PAUSA'; desde = t(f); break;
       case 'REANUDAR': estado = 'TRABAJANDO'; desde = t(f); cliente = f.cliente_id || cliente; break;
-      case 'SALIDA': estado = 'FUERA'; desde = t(f); cliente = null; desp = null; break;
-      case 'CAMBIO_CLIENTE': cliente = f.cliente_id; break;
+      case 'SALIDA': estado = 'FUERA'; desde = t(f); cliente = null; proyecto = null; desp = null; break;
+      case 'CAMBIO_CLIENTE': cliente = f.cliente_id || null; proyecto = f.proyecto_id || null; break;
       case 'DESPLAZAMIENTO_INICIO': desp = { desde: t(f), cliente_id: f.cliente_id, lat: f.lat, lng: f.lng }; break;
-      case 'DESPLAZAMIENTO_FIN': cliente = f.cliente_id || desp?.cliente_id || cliente; desp = null; break;
+      case 'DESPLAZAMIENTO_FIN': {
+        const destino = f.cliente_id || desp?.cliente_id || cliente;
+        if (destino !== cliente) proyecto = null;
+        cliente = destino; desp = null; break;
+      }
     }
   }
-  return { estado, desde, desplazamiento: desp, cliente_id: cliente };
+  return { estado, desde, desplazamiento: desp, cliente_id: cliente, proyecto_id: proyecto };
 }
 
 /** Qué fichajes se pueden hacer ahora (para habilitar botones). */
@@ -35,7 +39,7 @@ export function accionesPosibles(st) {
 }
 
 /**
- * Tramos continuos de un día: TRABAJO (por cliente), PAUSA y DESPLAZAMIENTO.
+ * Tramos continuos de un día: TRABAJO (por cliente y proyecto), PAUSA y DESPLAZAMIENTO.
  * @param fichajes de UN usuario y UN día
  * @param ahora ms: si la jornada sigue abierta, el tramo en curso llega hasta aquí.
  *              null = día pasado: los tramos sin cerrar no cuentan (igual que en SQL).
@@ -45,11 +49,11 @@ export function tramos(fichajes, ahora = Date.now()) {
   // de cliente a posteriori se aplica después de la ENTRADA de esa misma hora.
   const ev = fichajes.filter(efectivo).sort((a, b) => t(a) - t(b) || Date.parse(a.momento) - Date.parse(b.momento));
   const out = [];
-  let st = 'FUERA', segIni = null, segCli = null, cli = null, d = null;
+  let st = 'FUERA', segIni = null, segCli = null, cli = null, segPro = null, pro = null, d = null;
   const cerrar = (fin) => {
     if (segIni === null) return;
     const min = Math.floor((fin - segIni) / 60000);
-    if (min > 0) out.push({ tipo: st === 'PAUSA' ? 'PAUSA' : 'TRABAJO', cliente_id: segCli, inicio: segIni, fin, minutos: min });
+    if (min > 0) out.push({ tipo: st === 'PAUSA' ? 'PAUSA' : 'TRABAJO', cliente_id: segCli, proyecto_id: st === 'PAUSA' ? null : segPro, inicio: segIni, fin, minutos: min });
     segIni = null;
   };
   for (const f of ev) {
@@ -57,27 +61,28 @@ export function tramos(fichajes, ahora = Date.now()) {
     if (segIni !== null && (['PAUSA', 'REANUDAR', 'SALIDA', 'CAMBIO_CLIENTE', 'ENTRADA'].includes(f.tipo)
         || (f.tipo === 'DESPLAZAMIENTO_FIN' && (f.cliente_id || d?.cliente_id || null) !== segCli))) cerrar(m);
     switch (f.tipo) {
-      case 'ENTRADA': st = 'TRABAJANDO'; cli = f.cliente_id || null; segIni = m; segCli = cli; break;
-      case 'PAUSA': st = 'PAUSA'; segIni = m; segCli = null; break;
-      case 'REANUDAR': st = 'TRABAJANDO'; cli = f.cliente_id || cli; segIni = m; segCli = cli; break;
-      case 'CAMBIO_CLIENTE': cli = f.cliente_id; segIni = m; segCli = cli; break;
+      case 'ENTRADA': st = 'TRABAJANDO'; cli = f.cliente_id || null; pro = f.proyecto_id || null; segIni = m; segCli = cli; segPro = pro; break;
+      case 'PAUSA': st = 'PAUSA'; segIni = m; segCli = null; segPro = null; break;
+      case 'REANUDAR': st = 'TRABAJANDO'; cli = f.cliente_id || cli; segIni = m; segCli = cli; segPro = pro; break;
+      case 'CAMBIO_CLIENTE': cli = f.cliente_id || null; pro = f.proyecto_id || null; segIni = m; segCli = cli; segPro = pro; break;
       case 'SALIDA': st = 'FUERA'; break;
       case 'DESPLAZAMIENTO_INICIO': d = { ini: m, cliente_id: f.cliente_id, lat: f.lat, lng: f.lng }; break;
       case 'DESPLAZAMIENTO_FIN': {
         const destino = f.cliente_id || d?.cliente_id || null;
         if (d) {
-          out.push({ tipo: 'DESPLAZAMIENTO', cliente_id: destino, inicio: d.ini, fin: m, minutos: Math.floor((m - d.ini) / 60000),
+          out.push({ tipo: 'DESPLAZAMIENTO', cliente_id: destino, proyecto_id: null, inicio: d.ini, fin: m, minutos: Math.floor((m - d.ini) / 60000),
                      km: km(d, f) });
           d = null;
         }
-        if (st === 'TRABAJANDO' && destino !== segCli) { cli = destino; segIni = m; segCli = cli; }
+        // al llegar a otro cliente se deja el proyecto anterior
+        if (st === 'TRABAJANDO' && destino !== segCli) { cli = destino; pro = null; segIni = m; segCli = cli; segPro = null; }
         break;
       }
     }
   }
   if (ahora === null) return out.sort((a, b) => a.inicio - b.inicio);
   if (segIni !== null && st === 'TRABAJANDO') {
-    out.push({ tipo: 'TRABAJO', cliente_id: segCli, inicio: segIni, fin: null, minutos: Math.max(0, Math.floor((ahora - segIni) / 60000)) });
+    out.push({ tipo: 'TRABAJO', cliente_id: segCli, proyecto_id: segPro, inicio: segIni, fin: null, minutos: Math.max(0, Math.floor((ahora - segIni) / 60000)) });
   } else if (segIni !== null && st === 'PAUSA') {
     out.push({ tipo: 'PAUSA', cliente_id: null, inicio: segIni, fin: null, minutos: Math.max(0, Math.floor((ahora - segIni) / 60000)) });
   }
@@ -94,9 +99,10 @@ function km(a, b) {
 
 /** Totales de un día a partir de sus tramos. */
 export function totales(trs) {
-  const s = { trabajo: 0, pausa: 0, desplazamiento: 0, km: 0, porCliente: {} };
+  const s = { trabajo: 0, pausa: 0, desplazamiento: 0, km: 0, porCliente: {}, porProyecto: {} };
   for (const x of trs) {
-    if (x.tipo === 'TRABAJO') { s.trabajo += x.minutos; s.porCliente[x.cliente_id || ''] = (s.porCliente[x.cliente_id || ''] || 0) + x.minutos; }
+    if (x.tipo === 'TRABAJO') { s.trabajo += x.minutos; s.porCliente[x.cliente_id || ''] = (s.porCliente[x.cliente_id || ''] || 0) + x.minutos;
+      if (x.proyecto_id) s.porProyecto[x.proyecto_id] = (s.porProyecto[x.proyecto_id] || 0) + x.minutos; }
     if (x.tipo === 'PAUSA') s.pausa += x.minutos;
     if (x.tipo === 'DESPLAZAMIENTO') { s.desplazamiento += x.minutos; s.km += x.km || 0; }
   }

@@ -101,6 +101,7 @@ input[type=checkbox], input[type=radio] { width: 20px; min-height: 20px; height:
 .item small, .opcion small { display: block; color: var(--suave); }
 .acciones-rapidas { display: flex; gap: 6px; flex: none; }
 .mini { font-size: .8rem; padding: 6px 10px; border: 1px solid var(--borde); border-radius: 8px; text-decoration: none; }
+.lista-clientes .grupo { color: var(--suave); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; margin-top: 4px; }
 .lista-clientes { max-height: 50vh; overflow: auto; margin: 8px 0; display: flex; flex-direction: column; gap: 6px; }
 .opcion { display: flex; gap: 10px; align-items: center; margin: 0; padding: 10px; border: 1px solid var(--borde); border-radius: 10px; font-weight: 400; cursor: pointer; }
 .opcion:has(input:checked) { border-color: var(--marca); background: color-mix(in srgb, var(--marca) 8%, transparent); }
@@ -130,6 +131,7 @@ input[type=checkbox], input[type=radio] { width: 20px; min-height: 20px; height:
 .icono { width: 24px; height: 24px; background: currentColor; -webkit-mask: var(--i) center / contain no-repeat; mask: var(--i) center / contain no-repeat; }
 .icono.reloj { --i: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>'); }
 .icono.pin { --i: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>'); }
+.icono.carpeta { --i: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linejoin="round"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/></svg>'); }
 .icono.equipo { --i: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6"/></svg>'); }
 .icono.factura { --i: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linejoin="round"><path d="M6 2h9l4 4v16H6z"/><path d="M9 11h7M9 15h7M9 7h3"/></svg>'); }
 .icono.ajustes { --i: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>'); }

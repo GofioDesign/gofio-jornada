@@ -57,7 +57,7 @@ const supa = {
   // ---- jornada
   async fichar(org, tipo, o = {}) {
     const c = await cliente();
-    return ok(await c.rpc('fichar', { p_org: org, p_tipo: tipo, p_lat: o.lat ?? null, p_lng: o.lng ?? null, p_precision: o.precision ?? null, p_cliente: o.cliente_id ?? null, p_nota: o.nota ?? null }));
+    return ok(await c.rpc('fichar', { p_org: org, p_tipo: tipo, p_lat: o.lat ?? null, p_lng: o.lng ?? null, p_precision: o.precision ?? null, p_cliente: o.cliente_id ?? null, p_nota: o.nota ?? null, p_proyecto: o.proyecto_id ?? null }));
   },
   async fichajes(org, { desde, hasta, user } = {}) {
     const c = await cliente();
@@ -71,7 +71,7 @@ const supa = {
   async resumen(org, desde, hasta, user) { const c = await cliente(); return ok(await c.rpc('resumen_jornada', { p_org: org, p_desde: desde, p_hasta: hasta, p_user: user || null })); },
   async tramos(org, desde, hasta, user) { const c = await cliente(); return ok(await c.rpc('tramos_jornada', { p_org: org, p_desde: desde, p_hasta: hasta, p_user: user || null })); },
   async solicitarCorreccion(org, tipo, momento, motivo) { const c = await cliente(); return ok(await c.rpc('solicitar_correccion', { p_org: org, p_tipo: tipo, p_momento: momento, p_motivo: motivo })); },
-  async asignarCliente(org, momento, cliente_id, user) { const c = await cliente(); return ok(await c.rpc('asignar_cliente', { p_org: org, p_momento: momento, p_cliente: cliente_id, p_user: user || null })); },
+  async asignarCliente(org, momento, cliente_id, proyecto_id, user) { const c = await cliente(); return ok(await c.rpc('asignar_cliente', { p_org: org, p_momento: momento, p_cliente: cliente_id || null, p_proyecto: proyecto_id || null, p_user: user || null })); },
   async correccionesPendientes(org) { const c = await cliente(); return ok(await c.from('fichajes').select('*').eq('org_id', org).eq('estado', 'PENDIENTE').order('momento')); },
   async revisarCorreccion(id, aprobar) { const c = await cliente(); return ok(await c.rpc('revisar_correccion', { p_id: id, p_aprobar: aprobar })); },
 
@@ -80,6 +80,12 @@ const supa = {
   async guardarCliente(org, x) {
     const c = await cliente(); const { id, ...datos } = x; datos.org_id = org;
     return ok(id ? await c.from('clientes').update(datos).eq('id', id).select().single() : await c.from('clientes').insert(datos).select().single());
+  },
+  // ---- proyectos
+  async proyectos(org) { const c = await cliente(); return ok(await c.from('proyectos').select('*').eq('org_id', org).order('nombre')); },
+  async guardarProyecto(org, x) {
+    const c = await cliente(); const { id, ...datos } = x; datos.org_id = org;
+    return ok(id ? await c.from('proyectos').update(datos).eq('id', id).select().single() : await c.from('proyectos').insert(datos).select().single());
   },
   async fijarUbicacion(id, lat, lng) { const c = await cliente(); return ok(await c.rpc('fijar_ubicacion_cliente', { p_cliente: id, p_lat: lat, p_lng: lng })); },
 
@@ -154,6 +160,7 @@ function db() {
       fichajes: [], exportaciones: [], facturadas: [], facturas: [],
     };
   }
+  d.proyectos = d.proyectos || [];
   return d;
 }
 function guardar(d) { try { localStorage.setItem(K, JSON.stringify(d)); } catch { } }
@@ -161,6 +168,15 @@ const PLANES = [
   { id: 'gratis', nombre: 'Jornada Gratis', max_usuarios: 5, backup_auto: false, export_auto: false, precio_mes_eur: 0 },
   { id: 'pro', nombre: 'Jornada Pro', max_usuarios: null, backup_auto: true, export_auto: true, precio_mes_eur: 0 },
 ];
+// Igual que _cliente_de_proyecto en SQL
+function proyectoCliente(d, proyecto_id, cliente_id) {
+  if (!proyecto_id) return cliente_id || null;
+  const p = d.proyectos.find(x => x.id === proyecto_id);
+  if (!p) throw new Error('Proyecto no encontrado');
+  if (p.activo === false) throw new Error(`El proyecto «${p.nombre}» está cerrado`);
+  if (p.cliente_id && cliente_id && cliente_id !== p.cliente_id) throw new Error(`El proyecto «${p.nombre}» es de otro cliente`);
+  return p.cliente_id || cliente_id || null;
+}
 const espera = (ms = 60) => new Promise(r => setTimeout(r, ms));
 
 const demo = {
@@ -198,8 +214,10 @@ const demo = {
     if (tipo === 'SALIDA') { if (e.estado === 'FUERA') err('No has iniciado la jornada'); if (e.desplazamiento) add('DESPLAZAMIENTO_FIN', { cliente_id: e.desplazamiento.cliente_id }); }
     if (tipo === 'DESPLAZAMIENTO_INICIO') { if (e.desplazamiento) err('Ya hay un desplazamiento en curso'); if (e.estado === 'FUERA') add('ENTRADA'); if (e.estado === 'PAUSA') add('REANUDAR'); }
     if (tipo === 'DESPLAZAMIENTO_FIN' && !e.desplazamiento) err('No hay ningún desplazamiento en curso');
-    if (tipo === 'CAMBIO_CLIENTE' && (e.estado !== 'TRABAJANDO' || !o.cliente_id)) err('Elige un cliente con la jornada iniciada');
-    add(tipo, { cliente_id: o.cliente_id ?? (tipo === 'DESPLAZAMIENTO_FIN' ? e.desplazamiento?.cliente_id : null), nota: o.nota ?? null });
+    const proyecto_id = ['ENTRADA', 'CAMBIO_CLIENTE'].includes(tipo) ? o.proyecto_id || null : null;
+    if (proyecto_id) o = { ...o, cliente_id: proyectoCliente(d, proyecto_id, o.cliente_id) };
+    if (tipo === 'CAMBIO_CLIENTE' && (e.estado !== 'TRABAJANDO' || !(o.cliente_id || proyecto_id))) err('Elige un cliente o un proyecto con la jornada iniciada');
+    add(tipo, { cliente_id: o.cliente_id ?? (tipo === 'DESPLAZAMIENTO_FIN' ? e.desplazamiento?.cliente_id : null), proyecto_id, nota: o.nota ?? null });
     d.fichajes.push(...nuevos); guardar(d); return nuevos;
   },
   async fichajes(org, { user } = {}) { return db().fichajes.filter(f => f.org_id === org && (!user || f.user_id === user)).sort((a, b) => a.momento.localeCompare(b.momento)); },
@@ -226,8 +244,9 @@ const demo = {
   async solicitarCorreccion(org, tipo, momento, motivo) {
     const d = db(); d.fichajes.push({ id: uid(), org_id: org, user_id: 'demo-user', tipo, momento: new Date().toISOString(), momento_declarado: momento, motivo, origen: 'CORRECCION', estado: 'PENDIENTE' }); guardar(d);
   },
-  async asignarCliente(org, momento, cliente_id) {
-    const d = db(); const f = { id: uid(), org_id: org, user_id: 'demo-user', tipo: 'CAMBIO_CLIENTE', cliente_id, momento: new Date().toISOString(), momento_declarado: momento, motivo: 'Cliente asignado a posteriori', origen: 'RESPONSABLE', estado: 'APROBADA' };
+  async asignarCliente(org, momento, cliente_id, proyecto_id) {
+    const d = db(); cliente_id = proyectoCliente(d, proyecto_id, cliente_id);
+    const f = { id: uid(), org_id: org, user_id: 'demo-user', tipo: 'CAMBIO_CLIENTE', cliente_id, proyecto_id: proyecto_id || null, momento: new Date().toISOString(), momento_declarado: momento, motivo: 'Cliente asignado a posteriori', origen: 'RESPONSABLE', estado: 'APROBADA' };
     d.fichajes.push(f); guardar(d); return f;
   },
   async correccionesPendientes(org) { return db().fichajes.filter(f => f.org_id === org && f.estado === 'PENDIENTE'); },
@@ -241,6 +260,13 @@ const demo = {
     else { if (d.clientes.some(c => c.org_id === org && c.codigo === x.codigo)) throw new Error('Ya existe un registro con ese código'); fila = { activo: true, ...x, id: uid(), org_id: org }; d.clientes.push(fila); }
     guardar(d);
     return { ...fila };
+  },
+  async proyectos(org) { return db().proyectos.filter(p => p.org_id === org).sort((a, b) => a.nombre.localeCompare(b.nombre)); },
+  async guardarProyecto(org, x) {
+    const d = db(); let fila;
+    if (x.id) fila = Object.assign(d.proyectos.find(p => p.id === x.id), x);
+    else { fila = { activo: true, tipo: 'PROPIO', ...x, id: uid(), org_id: org, creado_en: new Date().toISOString() }; d.proyectos.push(fila); }
+    guardar(d); return { ...fila };
   },
   async fijarUbicacion(id, lat, lng) { const d = db(); Object.assign(d.clientes.find(c => c.id === id), { lat, lng }); guardar(d); },
 

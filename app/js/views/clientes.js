@@ -44,7 +44,9 @@ export async function vistaCliente(app, id) {
   const c = clientes.find(x => x.id === id);
   if (!c) return h('p.vacio', 'Cliente no encontrado.');
   const hoy = hoyISO(app.tz), desde = sumarDias(hoy, -30);
-  const tr = (await api.tramos(app.org, desde, hoy).catch(() => [])).filter(t => t.cliente_id === id);
+  const [tramos, proyectos] = await Promise.all([api.tramos(app.org, desde, hoy).catch(() => []), api.proyectos(app.org).catch(() => [])]);
+  const tr = tramos.filter(t => t.cliente_id === id);
+  const suyos = proyectos.filter(p => p.cliente_id === id);
   const min = tipo => tr.filter(t => t.tipo === tipo).reduce((s, t) => s + t.minutos, 0);
   const tel = (c.telefono || '').replace(/[^\d+]/g, '');
 
@@ -74,6 +76,10 @@ export async function vistaCliente(app, id) {
         h('div', h('small', 'Desplazamientos'), h('strong', fmtMin(min('DESPLAZAMIENTO')))),
         h('div', h('small', 'Km (línea recta)'), h('strong', tr.reduce((s, t) => s + (Number(t.km) || 0), 0).toLocaleString('es-ES', { maximumFractionDigits: 1 })))),
       app.facturacion ? h('a.btn', { href: '#/facturacion/' + c.id }, 'Facturar horas pendientes') : null),
+    suyos.length ? h('div.tarjeta',
+      h('h2', 'Proyectos'),
+      h('div.lista', suyos.map(p => h('a.item', { href: '#/proyectos/' + p.id },
+        h('div', h('strong', p.nombre), p.activo === false ? h('span.etiqueta', 'cerrado') : null))))) : null,
     h('div.tarjeta',
       h('h2', 'Datos'),
       h('dl.datos',
