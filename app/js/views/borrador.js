@@ -25,6 +25,10 @@ export async function vistaBorrador(app, id) {
   let irpfTocado = d.irpf_pct != null;
   const irpf = h('input', { id: 'b-irpf', type: 'number', min: 0, max: 50, step: 0.5, value: d.irpf_pct ?? irpfCliente(cli(), cfg),
     oninput: () => { irpfTocado = true; previa(); } });
+  // Periodo opcional: si se deja vacío, la factura no lo muestra
+  const pDesde = h('input', { id: 'b-desde', type: 'date', value: d.desde || '', onchange: () => previa() });
+  const pHasta = h('input', { id: 'b-hasta', type: 'date', value: d.hasta || '', onchange: () => previa() });
+  const quitarPeriodo = h('button.btn.enlace', { type: 'button', onclick: () => { pDesde.value = ''; pHasta.value = ''; previa(); } }, 'Quitar periodo');
   const obs = h('textarea', { id: 'b-obs', rows: 2, value: d.observaciones || '', oninput: () => previa() });
   const idioma = h('select', { 'aria-label': 'Idioma del PDF', onchange: () => previa() }, h('option', { value: 'ES' }, 'Español'), h('option', { value: 'EN' }, 'English'));
   idioma.value = cli()?.idioma === 'EN' ? 'EN' : 'ES';
@@ -36,10 +40,7 @@ export async function vistaBorrador(app, id) {
     Object.entries(AGRUPACIONES).map(([v, t]) => h('option', { value: v }, t)));
   agrupacion.value = d.agrupacion || 'DETALLE';
   const producto = h('select', { 'aria-label': 'Producto del catálogo' }, h('option', { value: '' }, 'Añadir producto del catálogo…'),
-    CATEGORIAS.map(cat => {
-      const ps = productos.filter(p => categoriaDe(p) === cat);
-      return ps.length ? h('optgroup', { label: NOMBRE_CATEGORIA[cat] }, ps.map(p => h('option', { value: p.id }, `${p.codigo} · ${p.descripcion_factura || p.descripcion}`))) : null;
-    }));
+    opcionesPorFamilia(productos, p => p.descripcion_factura || p.descripcion));
   const anadirProducto = () => {
     const p = productos.find(x => x.id === producto.value);
     if (!p) return;
@@ -49,22 +50,24 @@ export async function vistaBorrador(app, id) {
     producto.value = ''; pintarLineas();
   };
   producto.addEventListener('change', anadirProducto);
+  const diasHoras = (d.horas || []).map(x => x.dia).filter(Boolean).sort();
   const editor = h('div.lineas-editor');
   const hoja = h('article.doc-factura');
 
   const validas = () => lineas.filter(l => String(l.descripcion || '').trim() || Number(l.pvp));
   const datos = () => ({ fecha: fecha.value, irpf_pct: Number(irpf.value) || 0, observaciones: obs.value.trim() || null, lineas: validas(), agrupacion: agrupacion.value,
                          concepto: concepto.value.trim() || null,
-                         desde: d.desde || null, hasta: d.hasta || null, horas: d.horas || null });
+                         desde: pDesde.value || null, hasta: pHasta.value || pDesde.value || null, horas: d.horas || null });
 
   const importes = [];
   const previa = () => {
     cajaConcepto.hidden = agrupacion.value !== 'TOTAL';
+    quitarPeriodo.style.display = pDesde.value || pHasta.value ? '' : 'none';
     const t = calcular(validas(), irpf.value);
     const porLinea = calcular(lineas, 0).lineas;
     importes.forEach((el, i) => { el.textContent = eur(porLinea[i]?.base); });
     const f = { borrador: true, fecha: fecha.value, vencimiento: fecha.value && sumarDias(fecha.value, Number(cfg.dias_vencimiento ?? 30)),
-      periodo_desde: d.desde, periodo_hasta: d.hasta, cliente: cli() || {}, emisor: emisorDe(app.e, t.igic_desglose),
+      periodo_desde: pDesde.value || null, periodo_hasta: pHasta.value || pDesde.value || null, cliente: cli() || {}, emisor: emisorDe(app.e, t.igic_desglose),
       agrupacion: agrupacion.value, concepto: concepto.value,
       lineas: t.lineas.map(l => ({ descripcion: l.descripcion, cantidad: l.cantidad, unidad: l.unidad, pvp_ud: l.pvp, dto_pct: l.dto, igic_pct: l.igic, base: l.base, categoria: l.categoria })),
       base: t.base, igic: t.igic, igic_desglose: t.igic_desglose, irpf_pct: Number(irpf.value) || 0, irpf: t.irpf, total: t.total, observaciones: obs.value.trim() };
@@ -130,7 +133,10 @@ export async function vistaBorrador(app, id) {
         h('div.acciones', idioma, h('button.btn', { onclick: () => imprimir(`Borrador ${cli()?.nombre || ''}`) }, 'PDF borrador'))),
       h('div.tarjeta.formulario',
         h('div.dos', h('div', h('label', { for: 'b-cliente' }, 'Cliente'), cliente), h('div', h('label', { for: 'b-fecha' }, 'Fecha de la factura'), fecha)),
-        d.horas?.length ? h('p.ayuda', `Incluye ${d.horas.length === 1 ? '1 registro' : d.horas.length + ' registros'} de jornada (${fechaCorta(d.desde)} – ${fechaCorta(d.hasta)}). Al emitir quedarán marcados como facturados.`) : null,
+        d.horas?.length ? h('p.ayuda', `Incluye ${d.horas.length === 1 ? '1 registro' : d.horas.length + ' registros'} de jornada (${fechaCorta(diasHoras[0])} – ${fechaCorta(diasHoras.at(-1))}). Al emitir quedarán marcados como facturados.`) : null,
+        h('div.dos', h('div', h('label', { for: 'b-desde' }, 'Periodo desde (opcional)'), pDesde),
+          h('div', h('label', { for: 'b-hasta' }, 'Periodo hasta'), pHasta)),
+        h('p.ayuda', 'Si lo dejas vacío, la factura no muestra periodo. ', quitarPeriodo),
         h('h3', 'Líneas'), editor,
         h('div.dos', h('div', h('label', { for: 'b-irpf' }, 'Retención IRPF (%)'), irpf),
           h('div', h('label', { for: 'b-agrupacion' }, 'Cómo salen las líneas en la factura'), agrupacion)),
@@ -150,5 +156,12 @@ const selectCategoria = (l, alCambiar) => {
   s.value = categoriaDe(l);
   return s;
 };
+
+// Opciones del catálogo agrupadas por familia, por orden alfabético y de código.
+// (La categoría de factura se asigna sola al añadir la línea.)
+export const opcionesPorFamilia = (productos, texto) =>
+  [...new Set(productos.map(p => p.familia || 'SIN FAMILIA'))].sort((a, b) => a.localeCompare(b, 'es')).map(fam => h('optgroup', { label: fam },
+    productos.filter(p => (p.familia || 'SIN FAMILIA') === fam).sort((a, b) => String(a.codigo).localeCompare(String(b.codigo), 'es', { numeric: true }))
+      .map(p => h('option', { value: p.id }, `${p.codigo} · ${texto(p)}`))));
 
 const fechaCorta = x => x ? new Date(x + 'T12:00:00').toLocaleDateString('es-ES') : '';

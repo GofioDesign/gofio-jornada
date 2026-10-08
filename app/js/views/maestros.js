@@ -1,7 +1,10 @@
 import { api } from '../api.js';
-import { h, eur, fecha, accion, aviso, dialogo, puedeGestionar } from '../ui.js';
+import { h, eur, fecha, accion, aviso, dialogo, puedeGestionar, preferencia } from '../ui.js';
 import { categoriaDe, categoriaDeFamilia, CATEGORIAS, NOMBRE_CATEGORIA } from '../lib/factura.js';
 import { claveMargenFamilia, codigoDuplicado, costeUnitario, datosPrecio, margenObjetivo } from '../lib/precios.js';
+
+// Posición del listado al guardar un producto, para volver al mismo sitio al repintar
+let volverA = null;
 
 const pct = n => Number(n).toLocaleString('es-ES', { style: 'percent', maximumFractionDigits: 1 });
 
@@ -23,22 +26,39 @@ function indicadorImpuestos(producto) {
 export async function vistaProductos(app) {
   const [productos, proveedores] = await Promise.all([api.catalogoProductos(app.org), api.proveedores(app.org)]);
   const familias = [...new Set(productos.map(p => p.familia).filter(Boolean))].sort();
-  const buscar = h('input', { type: 'search', placeholder: 'Buscar código o descripción…', 'aria-label': 'Buscar productos' });
+  // Los filtros se recuerdan: al guardar un producto la vista se repinta con los mismos
+  const buscar = h('input', { type: 'search', placeholder: 'Buscar código o descripción…', 'aria-label': 'Buscar productos', value: preferencia('prod-q') || '' });
   const familia = h('select', { 'aria-label': 'Familia' }, h('option', { value: '' }, 'Todas las familias'), familias.map(x => h('option', { value: x }, x)));
-  const mostrarInactivos = h('input', { type: 'checkbox' });
+  familia.value = familias.includes(preferencia('prod-familia')) ? preferencia('prod-familia') : '';
+  const mostrarInactivos = h('input', { type: 'checkbox', checked: preferencia('prod-inactivos') === '1' });
   const filtroInactivos = h('label.check.filtro-check', mostrarInactivos, ' Mostrar inactivos');
   const contenido = h('div');
+  // Orden: se pulsa la cabecera de una columna; pulsar otra vez invierte el sentido
+  const COLUMNAS = { codigo: 'Código', descripcion: 'Descripción', familia: 'Familia', coste_ud: 'Coste', pvp: 'PVP' };
+  let [orden, sentido] = (preferencia('prod-orden') || 'familia:1').split(':');
+  if (!COLUMNAS[orden]) orden = 'familia';
+  sentido = Number(sentido) === -1 ? -1 : 1;
+  const comparar = (a, b) => {
+    const num = orden === 'coste_ud' || orden === 'pvp';
+    const r = num ? (Number(a[orden]) || 0) - (Number(b[orden]) || 0) : String(a[orden] || '').localeCompare(String(b[orden] || ''), 'es', { numeric: true });
+    return r * sentido || String(a.codigo).localeCompare(String(b.codigo), 'es', { numeric: true });
+  };
+  const cabecera = (k, num) => h(num ? 'th.num' : 'th', { 'aria-sort': orden === k ? (sentido === 1 ? 'ascending' : 'descending') : null },
+    h('button.orden', { type: 'button', onclick: () => { sentido = orden === k ? -sentido : 1; orden = k; preferencia('prod-orden', `${orden}:${sentido}`); pintar(); } },
+      COLUMNAS[k], h('span', { 'aria-hidden': 'true' }, orden === k ? (sentido === 1 ? ' ▲' : ' ▼') : '')));
   const pintar = () => {
+    preferencia('prod-q', buscar.value); preferencia('prod-familia', familia.value); preferencia('prod-inactivos', mostrarInactivos.checked ? '1' : '');
     const q = buscar.value.trim().toLowerCase();
     const filas = productos.filter(p => (!q || `${p.codigo} ${p.descripcion} ${p.descripcion_factura || ''}`.toLowerCase().includes(q))
-      && (!familia.value || p.familia === familia.value) && (mostrarInactivos.checked || p.activo !== false));
+      && (!familia.value || p.familia === familia.value) && (mostrarInactivos.checked || p.activo !== false)).sort(comparar);
     contenido.replaceChildren(filas.length ? h('table.tabla.tabla-productos',
-      h('thead', h('tr', h('th', 'Código'), h('th', 'Descripción'), h('th', 'Familia'), h('th.num', 'Coste'), h('th.num', 'PVP'), h('th', 'Mejor proveedor'), h('th', 'Estado'))),
+      h('thead', h('tr', cabecera('codigo'), cabecera('descripcion'), cabecera('familia'), cabecera('coste_ud', true), cabecera('pvp', true), h('th', 'Mejor proveedor'), h('th', 'Estado'))),
       h('tbody', filas.map(p => h('tr.enlace', { role: 'button', tabIndex: 0, onclick: () => editarProducto(app, p, proveedores, productos), onkeydown: e => { if (e.key === 'Enter') editarProducto(app, p, proveedores, productos); } }, h('td', h('strong', p.codigo)), h('td', p.descripcion), h('td', p.familia),
         h('td.num', eur(p.coste_ud, 4)), h('td.num.precio-producto', eur(p.pvp), indicadorPrecio(p, app.e.config)), h('td', p.mejor_proveedor ? `${p.mejor_proveedor} · ${eur(p.mejor_precio, 4)}` : '—'),
         h('td', h('span.estado-producto', indicadorImpuestos(p), h('span.etiqueta', p.activo ? 'Activo' : 'Inactivo'))))))) : h('p.vacio', 'No hay productos con esos filtros.'));
   };
   [buscar, familia, mostrarInactivos].forEach(x => x.addEventListener('input', pintar)); pintar();
+  if (volverA != null) { const y = volverA; volverA = null; requestAnimationFrame(() => scrollTo(0, y)); }
   return h('section.pila.catalogo-productos', h('div.cab', h('div', h('a.volver', { href: '#/facturacion' }, '‹ Facturación'), h('h1', 'Productos')), h('div.acciones',
     puedeGestionar(app.rol) ? h('button.btn', { onclick: () => editarMargenes(app, familias) }, 'Márgenes') : null,
     h('button.btn.primario', { onclick: () => editarProducto(app, {}, proveedores, productos) }, '+ Nuevo producto'))),
@@ -94,7 +114,7 @@ async function editarProducto(app, producto, proveedores, productos) {
         activo: form.querySelector('#prod-activo').checked };
       const ok = await accion(null, async () => { await api.guardarProducto(app.org, datos); return true; });
       if (!ok) return undefined;
-      aviso('Producto guardado', 'ok'); window.dispatchEvent(new HashChangeEvent('hashchange')); return true;
+      aviso('Producto guardado', 'ok'); volverA = scrollY; window.dispatchEvent(new HashChangeEvent('hashchange')); return true;
     },
   }];
   if (producto.id) botones.unshift({ texto: 'Duplicar', valor: async () => {
@@ -107,7 +127,7 @@ async function editarProducto(app, producto, proveedores, productos) {
       notas: producto.notas, activo: true };
     const ok = await accion(null, async () => { await api.guardarProducto(app.org, copia); return true; });
     if (!ok) return undefined;
-    aviso(`Duplicado como ${codigo}`, 'ok'); window.dispatchEvent(new HashChangeEvent('hashchange')); return true;
+    aviso(`Duplicado como ${codigo}`, 'ok'); volverA = scrollY; window.dispatchEvent(new HashChangeEvent('hashchange')); return true;
   }});
   await dialogo(producto.id ? `Editar ${producto.codigo}` : 'Nuevo producto', form, botones);
 }
@@ -138,10 +158,11 @@ async function editarMargenes(app, familias) {
 
 export async function vistaProveedores(app) {
   const [proveedores, precios] = await Promise.all([api.proveedores(app.org), api.preciosProveedor(app.org)]);
-  const buscar = h('input', { type: 'search', placeholder: 'Buscar proveedor…', 'aria-label': 'Buscar proveedores' });
-  const mostrarInactivos = h('input', { type: 'checkbox' });
+  const buscar = h('input', { type: 'search', placeholder: 'Buscar proveedor…', 'aria-label': 'Buscar proveedores', value: preferencia('prov-q') || '' });
+  const mostrarInactivos = h('input', { type: 'checkbox', checked: preferencia('prov-inactivos') === '1' });
   const contenido = h('div');
   const pintar = () => {
+    preferencia('prov-q', buscar.value); preferencia('prov-inactivos', mostrarInactivos.checked ? '1' : '');
     const q = buscar.value.trim().toLowerCase();
     const filas = proveedores.filter(p => (mostrarInactivos.checked || p.activo !== false) && (!q || `${p.codigo} ${p.nombre} ${p.contacto || ''}`.toLowerCase().includes(q)));
     contenido.replaceChildren(filas.length ? h('table.tabla', h('thead', h('tr', h('th', 'Código'), h('th', 'Proveedor'), h('th', 'Contacto'), h('th.num', 'Precios'), h('th', 'Web'), h('th', 'Estado'))),
