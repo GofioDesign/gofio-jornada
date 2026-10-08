@@ -1,5 +1,5 @@
 // Service worker: la app se abre al instante y funciona sin cobertura (los datos se piden al servidor al fichar).
-const CACHE = 'gofio-jornada-v0.1.30';
+const CACHE = 'gofio-jornada-v0.1.31';
 const APP = ['./', 'index.html', 'config.js', 'css/app.css', 'manifest.webmanifest', 'icons/icono.svg', 'icons/icono-192.png',
   'js/main.js', 'js/api.js', 'js/ui.js', 'js/lib/jornada.js', 'js/lib/mapas.js', 'js/lib/csv.js',
   'js/lib/factura.js', 'js/lib/precios.js', 'js/views/acceso.js', 'js/views/jornada.js',
@@ -17,7 +17,10 @@ self.addEventListener('fetch', e => {
   e.respondWith(caches.open(CACHE).then(async c => {
     const cached = await c.match(e.request, { ignoreSearch: u.origin === location.origin });
     try {
-      const red = await fetch(e.request);
+      // Los archivos propios se revalidan siempre (no-cache): así una versión recién publicada llega con la primera recarga
+      // en vez de esperar a que caduque la caché HTTP del hosting (10 min). Las navegaciones no admiten opciones.
+      const propio = u.origin === location.origin && e.request.mode !== 'navigate';
+      const red = await fetch(e.request, propio ? { cache: 'no-cache' } : undefined);
       if (red.ok && (u.origin === location.origin || u.hostname === 'cdn.jsdelivr.net')) {
         c.put(e.request, red.clone());
       }
