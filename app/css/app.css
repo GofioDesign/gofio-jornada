@@ -245,7 +245,10 @@ input[type=checkbox], input[type=radio] { width: 20px; min-height: 20px; height:
 .linea-ed.cabecera span { font-size: .75rem; font-weight: 600; color: var(--suave); }
 .linea-ed .importe { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .linea-ed .quitar { padding: 4px; min-height: 0; text-decoration: none; color: var(--suave); }
-.linea-ed:not(.cabecera) { grid-template-areas: "desc cant ud pvp dto igic imp x" "cat art art art art art art ." "grp grp grp grp grp grp grp ."; }
+.linea-ed:not(.cabecera) { grid-template-areas: "desc cant ud pvp dto igic imp x" "cat art art art art art art mov" "grp grp grp grp grp grp grp ."; }
+.linea-ed .mover { grid-area: mov; display: flex; flex-direction: column; align-items: center; }
+.linea-ed .mover button { padding: 1px 6px; min-height: 0; line-height: 1.1; font-size: .9rem; text-decoration: none; color: var(--suave); }
+.linea-ed .mover button:disabled { opacity: .25; cursor: default; }
 .c-grupo { grid-area: grp; display: none !important; }
 .lineas-editor.con-grupos .c-grupo { display: flex !important; align-items: center; gap: 8px; }
 .linea-ed .c-grupo .rotulo { display: block; white-space: nowrap; margin: 0; }
@@ -267,7 +270,7 @@ input[type=checkbox], input[type=radio] { width: 20px; min-height: 20px; height:
   .tabla-productos th:nth-child(5), .tabla-productos td:nth-child(5) { width: 22%; }
   .tabla-productos th:nth-child(7), .tabla-productos td:nth-child(7) { width: 18%; }
   .tabla-productos .etiqueta { margin-left: 0; padding: 2px 4px; font-size: .68rem; }
-  .linea-ed, .linea-ed:not(.cabecera) { grid-template-columns: 1fr 1fr 1fr 28px; grid-template-areas: "desc desc desc x" "art art art ." "grp grp grp ." "cat cat cat ." "cant ud pvp ." "dto igic imp ."; padding-bottom: 10px; border-bottom: 1px solid var(--borde); }
+  .linea-ed, .linea-ed:not(.cabecera) { grid-template-columns: 1fr 1fr 1fr 28px; grid-template-areas: "desc desc desc x" "art art art mov" "grp grp grp ." "cat cat cat ." "cant ud pvp ." "dto igic imp ."; padding-bottom: 10px; border-bottom: 1px solid var(--borde); }
   .linea-ed.cabecera { display: none; }
   .acciones-lineas { grid-template-columns: 1fr; } .acciones-lineas .btn { justify-self: start; }
   .linea-ed .rotulo { display: block; }
