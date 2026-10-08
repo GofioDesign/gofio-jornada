@@ -7,11 +7,12 @@ export const TIPOS = {
 };
 
 const t = f => new Date(f.momento_declarado || f.momento).getTime();
-const efectivo = f => f.origen === 'APP' || f.origen === undefined || f.estado === 'APROBADA';
+// Cuenta si no está anulado (marcado como error) y es de la app o una corrección aprobada
+const efectivo = f => !f.anulado && (f.origen === 'APP' || f.origen === undefined || f.estado === 'APROBADA');
 
 /** Estado actual a partir de los fichajes de la app (ordenados o no). */
 export function estadoActual(fichajes) {
-  const app = fichajes.filter(f => (f.origen || 'APP') === 'APP').sort((a, b) => t(a) - t(b));
+  const app = fichajes.filter(f => !f.anulado && (f.origen || 'APP') === 'APP').sort((a, b) => t(a) - t(b));
   let estado = 'FUERA', desde = null, desp = null, cliente = null, proyecto = null;
   for (const f of app) {
     switch (f.tipo) {

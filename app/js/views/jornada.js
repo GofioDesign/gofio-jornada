@@ -90,10 +90,12 @@ export async function vistaJornada(app) {
       h('div', h('small', 'Trabajo'), h('strong', fmtMin(tot.trabajo))),
       h('div', h('small', 'Pausas'), h('strong', fmtMin(tot.pausa))),
       h('div', h('small', 'Desplazamientos'), h('strong', fmtMin(tot.desplazamiento)))) : null,
-    delDia.filter(f => f.origen && f.origen !== 'APP' && (f.tipo !== 'CAMBIO_CLIENTE' || f.estado === 'PENDIENTE')).map(f => h('div.ayuda.correccion',
+    delDia.filter(f => f.anulado).map(f => h('div.ayuda.correccion', `Marcado como error: ${TIPOS[f.tipo]} de las ${hora(f.momento_declarado || f.momento, app.tz)} — ${f.anulado.motivo}`)),
+    delDia.filter(f => !f.anulado && f.origen && f.origen !== 'APP' && (f.tipo !== 'CAMBIO_CLIENTE' || f.estado === 'PENDIENTE')).map(f => h('div.ayuda.correccion',
       f.tipo === 'CAMBIO_CLIENTE' ? `Asignación pendiente de aprobar: ${enQue(f.cliente_id, f.proyecto_id) || 'cliente'} desde las ${hora(f.momento_declarado, app.tz)}`
         : `Corrección ${f.estado?.toLowerCase()}: ${TIPOS[f.tipo]} a las ${hora(f.momento_declarado, app.tz)} — ${f.motivo}`)),
-    h('button.btn.enlace', { onclick: () => correccion(app) }, '¿Te olvidaste de fichar? Solicitar corrección'));
+    h('button.btn.enlace', { onclick: () => correccion(app) }, '¿Te olvidaste de fichar? Solicitar corrección'),
+    puedeCrearClientes(app.rol) && delDia.some(f => !f.anulado) ? h('button.btn.enlace', { onclick: () => marcarErrores(app, delDia, { clientes, proyectos }) }, 'Marcar fichajes de este día como error') : null);
 
   // ---------- semana ----------
   const horasDia = Number(app.e.config?.jornada_horas_dia) || 8;
@@ -145,7 +147,7 @@ function botonFichar(app, tipo, clientes, proyectos, st) {
  * Selector de cliente (y de proyecto, si se pasan proyectos) con búsqueda.
  * Devuelve {cliente_id, proyecto_id} o null si se cancela.
  */
-async function elegirCliente(app, clientes, tipo, { titulo, proyectos = null } = {}) {
+export async function elegirCliente(app, clientes, tipo, { titulo, proyectos = null } = {}) {
   const conProyectos = !!proyectos;
   const buscar = h('input', { type: 'search', placeholder: conProyectos ? 'Buscar proyecto o cliente…' : 'Buscar cliente…', 'aria-label': 'Buscar' });
   let elegido = null;   // 'c:<id>' o 'p:<id>'
@@ -232,6 +234,38 @@ async function ofrecerGuardarUbicacion(c, pos) {
   const si = await dialogo('¿Guardar la ubicación?', h('p', `${c.nombre} no tiene ubicación GPS. ¿Guardamos este punto para que Waze/Maps lleven justo aquí la próxima vez?`),
     [{ texto: 'No', valor: false }, { texto: 'Guardar', clase: 'primario', valor: true }]);
   if (si) accion(null, async () => { await api.fijarUbicacion(c.id, pos.lat, pos.lng); aviso('Ubicación guardada', 'ok'); });
+}
+
+/**
+ * Marca como error (anula) fichajes de un día: pruebas, duplicados... El original no se borra.
+ * Solo propietario, admin y responsable. Devuelve true si se anuló algo.
+ */
+export async function marcarErrores(app, fichajes, { clientes = [], proyectos = [], persona = null } = {}) {
+  const en = f => [proyectos.find(p => p.id === f.proyecto_id)?.nombre, clientes.find(c => c.id === f.cliente_id)?.nombre].filter(Boolean).join(' · ');
+  const vivos = fichajes.filter(f => !f.anulado)
+    .sort((a, b) => Date.parse(a.momento_declarado || a.momento) - Date.parse(b.momento_declarado || b.momento));
+  const marcados = new Set();
+  const lista = h('div.lista-clientes', vivos.map(f => h('label.opcion',
+    h('input', { type: 'checkbox', onchange: e => { e.target.checked ? marcados.add(f.id) : marcados.delete(f.id); } }),
+    h('span', h('strong', `${hora(f.momento_declarado || f.momento, app.tz)} · ${TIPOS[f.tipo]}`),
+      h('small', [en(f), f.origen && f.origen !== 'APP' ? 'corrección' : null].filter(Boolean).join(' · ') || ' ')))));
+  const todos = h('button.btn.enlace', { type: 'button', onclick: () => { lista.querySelectorAll('input').forEach((i, n) => { i.checked = true; marcados.add(vivos[n].id); }); } }, 'Marcar todos');
+  const motivo = h('input', { id: 'e-motivo', value: 'Fichaje de prueba' });
+  const r = await dialogo(persona ? `Marcar como error · ${persona}` : 'Marcar fichajes como error', [
+    h('p.ayuda', 'Los fichajes marcados dejan de contar en horas, informes y facturación. No se borran: quedan anotados con el motivo, como exige el registro de jornada.'),
+    lista, todos, h('label', { for: 'e-motivo' }, 'Motivo'), motivo,
+  ], [{ texto: 'Cancelar', valor: false }, {
+    texto: 'Marcar como error', clase: 'peligro', valor: async () => {
+      if (!marcados.size) { aviso('Marca algún fichaje', 'error'); return undefined; }
+      if (!motivo.value.trim()) { aviso('Indica el motivo', 'error'); return undefined; }
+      const n = await accion(null, () => api.anularFichajes(app.org, [...marcados], motivo.value.trim()));
+      if (n === undefined) return undefined;
+      aviso(`${n} fichaje${n === 1 ? '' : 's'} marcado${n === 1 ? '' : 's'} como error`, 'ok');
+      return true;
+    },
+  }]);
+  if (r) window.dispatchEvent(new HashChangeEvent('hashchange'));
+  return !!r;
 }
 
 async function correccion(app) {

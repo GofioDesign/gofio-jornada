@@ -372,6 +372,45 @@ do $$ begin
 end $$;
 set role authenticated;
 
+-- ===== 10. Marcar fichajes como error (0017) =====
+reset role;
+create temp table hoy_b as select id from fichajes
+  where user_id = '00000000-0000-0000-0000-00000000000b' and coalesce(momento_declarado, momento) > now() - interval '1 day';
+grant all on hoy_b to authenticated;
+set role authenticated;
+select pg_temp.como('00000000-0000-0000-0000-00000000000b', 'empleado@gofio.test');
+-- el empleado no puede anular
+select pg_temp.debe_fallar($$select public.anular_fichajes((select org from ctx), array(select id from hoy_b), 'prueba')$$, 'Sin permiso');
+select pg_temp.como('00000000-0000-0000-0000-00000000000a', 'propietario@gofio.test');
+select pg_temp.debe_fallar($$select public.anular_fichajes((select org from ctx), array(select id from hoy_b), ' ')$$, 'motivo');
+-- un día ya facturado no se toca
+select pg_temp.debe_fallar($$select public.anular_fichajes((select org from ctx), array(select id from fichajes
+  where user_id = '00000000-0000-0000-0000-00000000000b' and (coalesce(momento_declarado, momento) at time zone 'Atlantic/Canary')::date = '2026-09-21' limit 1), 'error')$$, 'facturado');
+do $$ declare v_org uuid := (select org from ctx); n int; begin
+  if (select estado from public.estado_jornada(v_org, '00000000-0000-0000-0000-00000000000b')) <> 'TRABAJANDO' then raise exception 'estado previo'; end if;
+  n := public.anular_fichajes(v_org, array(select id from hoy_b), 'Fichajes de prueba');
+  if n <> (select count(*) from hoy_b) then raise exception 'anulados: %', n; end if;
+  -- repetir no duplica
+  if public.anular_fichajes(v_org, array(select id from hoy_b), 'otra vez') <> 0 then raise exception 'anulación duplicada'; end if;
+  -- dejan de contar: estado, tramos y resumen
+  if (select estado from public.estado_jornada(v_org, '00000000-0000-0000-0000-00000000000b')) <> 'FUERA' then raise exception 'sigue trabajando'; end if;
+  if exists (select 1 from public.tramos_jornada(v_org, current_date - 1, current_date + 1, '00000000-0000-0000-0000-00000000000b')) then raise exception 'tramos anulados'; end if;
+  if exists (select 1 from public.resumen_jornada(v_org, current_date - 1, current_date + 1, '00000000-0000-0000-0000-00000000000b')) then raise exception 'resumen anulado'; end if;
+  -- el original sigue ahí y la copia lleva las anulaciones
+  if (select count(*) from fichajes where id in (select id from hoy_b)) <> (select count(*) from hoy_b) then raise exception 'se borró el original'; end if;
+  if jsonb_array_length(public.copia_jornada(v_org)->'anulaciones') <> (select count(*) from hoy_b) then raise exception 'copia sin anulaciones'; end if;
+end $$;
+-- el empleado ve sus anulaciones y puede volver a fichar
+select pg_temp.como('00000000-0000-0000-0000-00000000000b', 'empleado@gofio.test');
+do $$ begin
+  if (select count(*) from fichajes_anulados) = 0 then raise exception 'el empleado no ve sus anulaciones'; end if;
+  perform public.fichar((select org from ctx), 'ENTRADA');
+end $$;
+reset role;
+select pg_temp.debe_fallar($$delete from fichajes_anulados$$, 'no se puede');
+select pg_temp.debe_fallar($$update fichajes_anulados set motivo = 'x'$$, 'no se puede');
+set role authenticated;
+
 -- un visitante SIN sesión (anon) no puede ejecutar ninguna función
 reset role;
 select pg_temp.como('', '');

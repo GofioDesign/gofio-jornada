@@ -1,12 +1,13 @@
 import { api } from '../api.js';
 import { h, montar, accion, aviso, hora, fecha, hoyISO, sumarDias, ROLES } from '../ui.js';
 import { estadoActual, fmtMin, diaLocal, TIPOS } from '../lib/jornada.js';
+import { elegirCliente, marcarErrores } from './jornada.js';
 import { toCSV, descargar } from '../lib/csv.js';
 
 export async function vistaEquipo(app) {
   const hoy = hoyISO(app.tz);
-  const [miembros, clientes, fichajesHoy, pendientes] = await Promise.all([
-    api.miembros(app.org), api.clientes(app.org),
+  const [miembros, clientes, proyectos, fichajesHoy, pendientes] = await Promise.all([
+    api.miembros(app.org), api.clientes(app.org), api.proyectos(app.org).catch(() => []),
     api.fichajes(app.org, { desde: sumarDias(hoy, -1), hasta: hoy }), api.correccionesPendientes(app.org),
   ]);
   const nombre = id => miembros.find(m => m.user_id === id)?.nombre || 'Sin nombre';
@@ -27,6 +28,44 @@ export async function vistaEquipo(app) {
       h('div.fila-botones',
         h('button.btn', { onclick: e => accion(e.currentTarget, async () => { await api.revisarCorreccion(f.id, false); aviso('Rechazada'); window.dispatchEvent(new HashChangeEvent('hashchange')); }) }, 'Rechazar'),
         h('button.btn.primario', { onclick: e => accion(e.currentTarget, async () => { await api.revisarCorreccion(f.id, true); aviso('Aprobada', 'ok'); window.dispatchEvent(new HashChangeEvent('hashchange')); }) }, 'Aprobar'))))) : null;
+
+  // ---------- fichajes del equipo: asignar lo que falta y marcar errores ----------
+  const fDesde = h('input', { type: 'date', value: sumarDias(hoy, -30), 'aria-label': 'Desde' });
+  const fHasta = h('input', { type: 'date', value: hoy, 'aria-label': 'Hasta' });
+  const fPersona = h('select', { 'aria-label': 'Persona' }, h('option', { value: '' }, 'Todo el equipo'), miembros.map(m => h('option', { value: m.user_id }, m.nombre || m.user_id)));
+  const fSin = h('input', { type: 'checkbox', checked: true });
+  const fTabla = h('div');
+  const enQue = t => [proyectos.find(p => p.id === t.proyecto_id) && '📁 ' + proyectos.find(p => p.id === t.proyecto_id).nombre, cli(t.cliente_id)].filter(Boolean).join(' · ');
+  const asignar = async (t, btn) => {
+    const r = await elegirCliente(app, clientes, 'ASIGNAR', { proyectos,
+      titulo: `${nombre(t.user_id)} · ${fecha(t.dia)} de ${hora(t.inicio, app.tz)} a ${t.fin ? hora(t.fin, app.tz) : 'ahora'}` });
+    if (!r || (!r.cliente_id && !r.proyecto_id)) return;
+    const ok = await accion(btn, () => api.asignarCliente(app.org, new Date(t.inicio).toISOString(), r.proyecto_id ? null : r.cliente_id, r.proyecto_id, t.user_id));
+    if (ok) { aviso('Asignado', 'ok'); await cargarFichajes(); }
+  };
+  const errores = async (t, btn) => {
+    const fs = await accion(btn, () => api.fichajes(app.org, { desde: t.dia, hasta: t.dia, user: t.user_id }));
+    if (!fs) return;
+    await marcarErrores(app, fs.filter(f => diaLocal(Date.parse(f.momento_declarado || f.momento), app.tz) === t.dia),
+      { clientes, proyectos, persona: `${nombre(t.user_id)} · ${fecha(t.dia)}` });
+  };
+  const cargarFichajes = async () => {
+    const trs = (await api.tramos(app.org, fDesde.value, fHasta.value, fPersona.value || null))
+      .filter(t => t.tipo === 'TRABAJO' && (!fSin.checked || (!t.cliente_id && !t.proyecto_id)))
+      .sort((a, b) => b.dia.localeCompare(a.dia) || String(a.inicio).localeCompare(String(b.inicio)));
+    montar(fTabla, trs.length ? h('div.lista', trs.map(t => h('div.item',
+        h('div', h('strong', `${fecha(t.dia)} · ${nombre(t.user_id)}`),
+          h('small', `${hora(t.inicio, app.tz)} – ${t.fin ? hora(t.fin, app.tz) : 'ahora'} · ${fmtMin(t.minutos)} · ${enQue(t) || 'sin asignar'}`)),
+        h('div.fila-botones',
+          h('button.btn.mini', { onclick: e => asignar(t, e.currentTarget) }, t.cliente_id || t.proyecto_id ? 'Cambiar' : 'Asignar'),
+          h('button.btn.mini', { title: 'Marcar fichajes de este día como error', onclick: e => errores(t, e.currentTarget) }, 'Error…')))))
+      : h('p.vacio', fSin.checked ? 'No hay tramos sin asignar en ese periodo. 👍' : 'Sin tramos de trabajo en ese periodo.'));
+  };
+  [fDesde, fHasta, fPersona, fSin].forEach(x => x.addEventListener('change', () => accion(null, cargarFichajes)));
+  await cargarFichajes();
+  const fichajesEquipo = h('div.tarjeta', h('h2', 'Fichajes del equipo'),
+    h('p.ayuda', 'Asigna cliente o proyecto a los tramos que quedaron sin asignar, o marca como error los fichajes de prueba.'),
+    h('div.filtros', fDesde, fHasta, fPersona, h('label.check', fSin, ' Solo sin asignar')), fTabla);
 
   // ---------- informe ----------
   const desde = h('input', { type: 'date', value: hoy.slice(0, 8) + '01', 'aria-label': 'Desde' });
@@ -64,7 +103,7 @@ export async function vistaEquipo(app) {
 
   return h('section.pila',
     h('h1', 'Equipo'),
-    correcciones, ahora,
+    correcciones, ahora, fichajesEquipo,
     h('div.tarjeta', h('h2', 'Registro de jornada'),
       h('div.filtros', desde, hasta, persona, exportar), tabla,
       h('p.ayuda', '* Incluye correcciones aprobadas. El registro se conserva 4 años y no se puede borrar ni modificar.')),

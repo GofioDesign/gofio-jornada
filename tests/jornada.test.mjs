@@ -60,6 +60,14 @@ test('proyectos: las horas van al proyecto (y a su cliente); la pausa no, y al r
   assert.equal(estadoActual([{ tipo: 'ENTRADA', momento: h('08:00'), proyecto_id: 'P1' }]).proyecto_id, 'P1');
 });
 
+test('los fichajes marcados como error no cuentan', () => {
+  const anulado = { motivo: 'Fichaje de prueba' };
+  const tr = tramos([...dia.slice(0, 4), { ...dia[4], anulado }, { ...dia[5] }]);
+  assert.equal(totales(tr).porCliente.B, undefined);   // sin la llegada, no hay tramo en B
+  assert.equal(estadoActual([{ tipo: 'ENTRADA', momento: h('08:00'), anulado }]).estado, 'FUERA');
+  assert.equal(totales(tramos(dia.map(f => ({ ...f, anulado })))).trabajo, 0);
+});
+
 test('jornada abierta cuenta hasta ahora', () => {
   const tr = tramos(dia.slice(0, 3), new Date(h('11:00')).getTime());
   assert.equal(totales(tr).trabajo, 150);
