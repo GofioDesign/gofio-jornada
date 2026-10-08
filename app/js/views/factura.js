@@ -80,7 +80,7 @@ export function documento(f, t, logo) {
         h('h2', f.tipo_doc === 'RECTIFICATIVA' ? t.rectificativa : t.factura),
         h('dl', h('dt', t.num), h('dd', f.num || t.borrador), h('dt', t.fecha), h('dd', dia(f.fecha)),
           f.vencimiento ? [h('dt', t.vence), h('dd', dia(f.vencimiento))] : null,
-          f.periodo_desde ? [h('dt', t.periodo), h('dd', `${dia(f.periodo_desde)} – ${dia(f.periodo_hasta)}`)] : null))),
+          f.periodo_desde ? [h('dt', t.periodo), h('dd', !f.periodo_hasta || f.periodo_hasta === f.periodo_desde ? dia(f.periodo_desde) : `${dia(f.periodo_desde)} – ${dia(f.periodo_hasta)}`)] : null))),
     h('section.df-cliente',
       h('div.df-etiqueta', t.cliente),
       h('strong', c.nombre || ''),
