@@ -107,3 +107,14 @@ test('borradorRectificativo: copia líneas en orden, con precio, grupo y referen
   assert.deepEqual(b.rectifica, { id: 'f1', num: 'EMIT26-0004', fecha: '2026-10-08' });
   assert.equal(motivoRectificativa(b.rectifica, ' Precio mal '), 'Rectifica la factura EMIT26-0004 de 08/10/2026. Precio mal');
 });
+
+test('urlWeb y urlWhatsApp', async () => {
+  const { urlWeb, urlWhatsApp } = await import('../app/js/lib/factura.js');
+  assert.equal(urlWeb('gofiodesign.eu'), 'https://gofiodesign.eu');
+  assert.equal(urlWeb('http://x.es'), 'http://x.es');
+  assert.equal(urlWeb(''), null);
+  assert.equal(urlWhatsApp('622 33 44 55'), 'https://wa.me/34622334455');
+  assert.equal(urlWhatsApp('+34 622-33-44-55'), 'https://wa.me/34622334455');
+  assert.equal(urlWhatsApp('0049 151 2345678'), 'https://wa.me/491512345678');
+  assert.equal(urlWhatsApp('12'), null);
+});

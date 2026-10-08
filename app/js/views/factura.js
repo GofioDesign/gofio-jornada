@@ -2,7 +2,7 @@
 // Idiomas: ES y EN. Los datos de emisor y cliente son los congelados al emitir.
 import { api } from '../api.js';
 import { h, montar, accion, aviso, dialogo, hoyISO } from '../ui.js';
-import { porCategoria, resumenPorCategoria, totalPorIgic, conceptoDe, porConcepto, borradorRectificativo, plantillasObs, anadirObs } from '../lib/factura.js';
+import { porCategoria, resumenPorCategoria, totalPorIgic, conceptoDe, porConcepto, borradorRectificativo, plantillasObs, anadirObs, urlWeb, urlWhatsApp } from '../lib/factura.js';
 
 export const TXT = {
   ES: {
@@ -116,7 +116,10 @@ export function documento(f, t, logo, logoTamano = 'M') {
         logo ? h('img.df-logo.t-' + (['S', 'M', 'L'].includes(logoTamano) ? logoTamano : 'M'), { src: logo, alt: e.marca || '' }) : null,
         h('strong.df-marca', e.marca || ''),
         bloque(e.titular && e.titular !== e.marca ? e.titular : null, e.nif && `${t.nif}: ${e.nif}`, e.direccion,
-          juntar(e.cp, e.localidad), e.provincia, juntar(e.email, e.telefono && `· ${e.telefono}`), e.web)),
+          juntar(e.cp, e.localidad), e.provincia,
+          e.email || e.telefono ? [e.email ? h('a', { href: 'mailto:' + e.email }, e.email) : null, e.email && e.telefono ? ' · ' : null,
+            e.telefono ? (urlWhatsApp(e.telefono) ? h('a', { href: urlWhatsApp(e.telefono), target: '_blank', rel: 'noopener' }, e.telefono) : e.telefono) : null] : null,
+          e.web ? h('a', { href: urlWeb(e.web), target: '_blank', rel: 'noopener' }, e.web) : null)),
       h('div.df-titulo',
         h('h2', f.tipo_doc === 'RECTIFICATIVA' ? t.rectificativa : t.factura),
         h('dl', h('dt', t.num), h('dd', f.num || t.borrador), h('dt', t.fecha), h('dd', dia(f.fecha)),

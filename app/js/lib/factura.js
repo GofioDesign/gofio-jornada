@@ -122,3 +122,13 @@ export const motivoRectificativa = (r, motivo) => {
   const [a, m, d] = String(r.fecha || '').split('-');
   return `Rectifica la factura ${r.num}${d ? ` de ${d}/${m}/${a}` : ''}. ${String(motivo || '').trim()}`.trim();
 };
+
+// Enlaces del emisor en la factura (el PDF de «Guardar como PDF» los conserva clicables).
+export const urlWeb = w => { const s = String(w || '').trim(); return !s ? null : /^https?:\/\//i.test(s) ? s : 'https://' + s; };
+// WhatsApp: wa.me necesita el número internacional sin «+» ni espacios; un número español de 9 cifras lleva el 34 delante.
+export const urlWhatsApp = tel => {
+  let d = String(tel || '').replace(/[^\d+]/g, '');
+  if (d.startsWith('+')) d = d.slice(1); else if (d.startsWith('00')) d = d.slice(2); else if (/^[6789]\d{8}$/.test(d)) d = '34' + d;
+  d = d.replace(/\D/g, '');
+  return d.length >= 8 ? 'https://wa.me/' + d : null;
+};
