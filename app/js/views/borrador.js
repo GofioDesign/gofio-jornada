@@ -29,7 +29,7 @@ export async function vistaBorrador(app, id) {
   const pDesde = h('input', { id: 'b-desde', type: 'date', value: d.desde || '', onchange: () => previa() });
   const pHasta = h('input', { id: 'b-hasta', type: 'date', value: d.hasta || '', onchange: () => previa() });
   const quitarPeriodo = h('button.btn.enlace', { type: 'button', onclick: () => { pDesde.value = ''; pHasta.value = ''; previa(); } }, 'Quitar periodo');
-  const obs = h('textarea', { id: 'b-obs', rows: 2, value: d.observaciones || '', oninput: () => previa() });
+  const obs = h('textarea', { id: 'b-obs', rows: 3, value: d.observaciones || '', oninput: () => previa() });
   const idioma = h('select', { 'aria-label': 'Idioma del PDF', onchange: () => previa() }, h('option', { value: 'ES' }, 'Español'), h('option', { value: 'EN' }, 'English'));
   idioma.value = cli()?.idioma === 'EN' ? 'EN' : 'ES';
   const concepto = h('input', { id: 'b-concepto', type: 'text', maxLength: 250, value: d.concepto || '', oninput: () => previa(),
