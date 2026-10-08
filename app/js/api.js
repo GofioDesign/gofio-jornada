@@ -3,7 +3,7 @@
 //  - Modo DEMO: sin configurar nada; guarda en este navegador para probar la app.
 import { CONFIG } from '../config.js';
 import { estadoActual, tramos, totales, diaLocal } from './lib/jornada.js';
-import { calcular, irpfCliente, emisorDe, categoriaDe, conceptoDe, motivoRectificativa } from './lib/factura.js';
+import { calcular, irpfCliente, emisorDe, categoriaDe, conceptoDe, motivoRectificativa, numeroAnterior, SIN_HUELLA } from './lib/factura.js';
 
 export const DEMO = !CONFIG.SUPABASE_URL || /\?demo|#demo/.test(location.href);
 
@@ -138,6 +138,12 @@ const supa = {
       p_observaciones: d.observaciones || null, p_periodo_desde: d.desde || null, p_periodo_hasta: d.hasta || null, p_horas: d.rectifica ? null : d.horas || null,
       p_rectifica: d.rectifica?.id || null, p_motivo: d.rectifica ? motivoRectificativa(d.rectifica, d.motivo) : null, p_agrupacion: d.agrupacion || 'DETALLE',
       p_concepto: d.agrupacion === 'TOTAL' ? d.concepto || null : null }));
+  },
+  async registrarFacturaAnterior(org, d) {
+    const c = await cliente();
+    return ok(await c.rpc('registrar_factura_anterior', { p_org: org, p_cliente: d.cliente_id, p_num: d.num, p_fecha: d.fecha, p_lineas: d.lineas,
+      p_irpf_pct: d.irpf_pct ?? null, p_observaciones: d.observaciones || null, p_agrupacion: d.agrupacion || 'DETALLE',
+      p_concepto: d.agrupacion === 'TOTAL' ? d.concepto || null : null, p_cobrada: d.cobrada || null }));
   },
   async corregirTextosFactura(id, x) {
     const c = await cliente();
@@ -339,6 +345,23 @@ const demo = {
     d.facturas.unshift(f);
     if (orig) Object.assign(orig, { estado: 'RECTIFICADA', estado_cobro: 'RECTIFICADA' });
     if (!orig) (x.horas || []).forEach(h => d.facturadas.push([x.cliente_id, h.user_id, h.dia, h.tipo].join('|')));
+    guardar(d); return f;
+  },
+  async registrarFacturaAnterior(org, x) {
+    const d = db();
+    const num = numeroAnterior(x.num, x.fecha);
+    if (d.facturas.some(y => y.org_id === org && y.num === num)) throw new Error('Ya hay una factura con el número ' + num);
+    if (!x.lineas?.length) throw new Error('La factura no tiene líneas');
+    const o = d.orgs.find(y => y.id === org), c = d.clientes.find(y => y.id === x.cliente_id) || {};
+    const t = calcular(x.lineas, x.irpf_pct ?? irpfCliente(c, o?.config));
+    const lineas = t.lineas.map((l, i) => ({ linea: i + 1, codigo: l.codigo, descripcion: l.descripcion, cantidad: l.cantidad, unidad: l.unidad, pvp_ud: l.pvp,
+      dto_pct: l.dto || 0, base: l.base, igic_pct: l.igic || 0, igic: l.cuota, familia: l.familia || null, categoria: categoriaDe(l), grupo: String(l.grupo || '').trim() || null }));
+    const f = { id: uid(), org_id: org, num, serie: num.split('-')[0], tipo_doc: 'FACTURA', fecha: x.fecha, vencimiento: new Date(Date.parse(x.fecha) + 30 * 864e5).toISOString().slice(0, 10),
+      cliente: { ...c }, emisor: emisorDe(o, t.igic_desglose), base: t.base, igic: t.igic, igic_desglose: t.igic_desglose, irpf_pct: x.irpf_pct ?? irpfCliente(c, o?.config),
+      irpf: t.irpf, total: t.total, observaciones: x.observaciones || null, agrupacion: x.agrupacion || 'DETALLE',
+      concepto: conceptoDe(x.agrupacion === 'TOTAL' ? x.concepto : '', x.lineas), lineas, huella: SIN_HUELLA, estado: 'HISTORICA', estado_cobro: 'HISTORICA',
+      pendiente: x.cobrada ? 0 : t.total };
+    d.facturas.push(f); d.facturas.sort((a, b) => b.fecha.localeCompare(a.fecha));
     guardar(d); return f;
   },
   async corregirTextosFactura(id, x) {

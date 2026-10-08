@@ -46,7 +46,7 @@ async function listado(app) {
     h('option', { value: '' }, 'Elige cliente…'), clientes.map(c => h('option', { value: c.id }, c.nombre)));
 
   return h('section.pila',
-    h('div.cab', h('h1', 'Facturación ', h('span.etiqueta', 'beta')), h('div.acciones', h('a.btn', { href: '#/facturacion/productos' }, 'Productos'), h('a.btn', { href: '#/facturacion/proveedores' }, 'Proveedores'), h('a.btn', { href: '#/facturacion/presupuestos' }, 'Presupuestos'), h('a.btn.primario', { href: '#/facturacion/borrador/nuevo' }, '+ Nueva factura'))),
+    h('div.cab', h('h1', 'Facturación ', h('span.etiqueta', 'beta')), h('div.acciones', h('a.btn', { href: '#/facturacion/productos' }, 'Productos'), h('a.btn', { href: '#/facturacion/proveedores' }, 'Proveedores'), h('a.btn', { href: '#/facturacion/presupuestos' }, 'Presupuestos'), h('a.btn', { href: '#/facturacion/borrador/anterior' }, 'Registrar factura anterior'), h('a.btn.primario', { href: '#/facturacion/borrador/nuevo' }, '+ Nueva factura'))),
     listaBorradores ? h('div.tarjeta', h('h2', 'Borradores'), h('p.ayuda', 'Facturas en preparación: puedes cambiarlas o borrarlas hasta que las emitas.'), listaBorradores) : null,
     h('div.tarjeta', h('h2', 'Facturar horas registradas'), h('p.ayuda', 'Convierte las horas y desplazamientos fichados para un cliente en un borrador de factura.'), elegir),
     h('div.tarjeta', h('h2', 'Facturas emitidas'), h('div.filtros', buscar, estado), tabla));

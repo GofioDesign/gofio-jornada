@@ -2,7 +2,7 @@
 // Idiomas: ES y EN. Los datos de emisor y cliente son los congelados al emitir.
 import { api } from '../api.js';
 import { h, montar, accion, aviso, dialogo, hoyISO } from '../ui.js';
-import { porCategoria, resumenPorCategoria, totalPorIgic, conceptoDe, porConcepto, borradorRectificativo, plantillasObs, anadirObs, urlWeb, urlWhatsApp, ordenLineas } from '../lib/factura.js';
+import { porCategoria, resumenPorCategoria, totalPorIgic, conceptoDe, porConcepto, borradorRectificativo, plantillasObs, anadirObs, urlWeb, urlWhatsApp, ordenLineas, SIN_HUELLA } from '../lib/factura.js';
 
 export const TXT = {
   ES: {
@@ -46,6 +46,7 @@ export async function vistaFactura(app, id) {
         !['RECTIFICADA', 'ANULADA'].includes(f.estado) ? h('button.btn', { onclick: ev => accion(ev.currentTarget, () => rectificar(app, f)) }, 'Rectificar') : null,
         h('button.btn.primario', { onclick: pdf }, 'Descargar PDF'))),
       f.estado === 'RECTIFICADA' ? h('p.aviso-fijo', 'Esta factura está rectificada por otra: ya no cuenta como pendiente de cobro.') : null,
+      f.estado === 'HISTORICA' ? h('p.ayuda', 'Factura anterior a la app: se registró con su número y fecha originales.') : null,
       f.textos_corregidos_en ? h('p.ayuda', `Textos corregidos el ${new Date(f.textos_corregidos_en).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' })}.`) : null,
       faltan ? h('p.aviso-fijo', 'Esta factura se emitió sin tus datos fiscales completos (titular, NIF y dirección). ',
         'Rellénalos en ', h('a', { href: '#/ajustes' }, 'Ajustes'), ': las próximas facturas ya los llevarán.') : null,
@@ -154,7 +155,7 @@ export function documento(f, t, logo, logoTamano = 'M') {
     e.iban || e.pago ? h('section.df-pago', h('div.df-etiqueta', t.pago),
       bloque(e.pago || t.transferencia, e.iban && `IBAN: ${e.iban}`, e.bic && `BIC: ${e.bic}`)) : null,
     f.observaciones ? h('p.df-nota.df-obs', h('strong', `${t.obs}: `), String(f.observaciones).replace(/<br\s*\/?>/gi, '\n')) : null,
-    f.huella ? h('footer.df-pie', `${t.huella}: ${f.huella}`) : null,
+    f.huella && f.huella !== SIN_HUELLA ? h('footer.df-pie', `${t.huella}: ${f.huella}`) : null,
   ];
 }
 

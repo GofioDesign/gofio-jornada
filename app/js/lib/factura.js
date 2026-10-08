@@ -134,3 +134,14 @@ export const urlWhatsApp = tel => {
   d = d.replace(/\D/g, '');
   return d.length >= 8 ? 'https://wa.me/' + d : null;
 };
+
+// Facturas anteriores a la app (registradas a mano): no tienen huella propia ni entran en la cadena.
+export const SIN_HUELLA = 'IMPORTADA-SIN-HUELLA';
+
+/** Número de una factura anterior normalizado (" emit25-7 " → "EMIT25-0007"). Comprueba el formato y que la serie sea del año de la fecha. */
+export function numeroAnterior(num, fecha) {
+  const m = String(num || '').trim().toUpperCase().match(/^([A-Z]+)(\d{2})-(\d+)$/);
+  if (!m) throw new Error('El número debe tener el formato de la serie, p. ej. EMIT26-0001');
+  if (fecha && m[2] !== String(fecha).slice(2, 4)) throw new Error(`El número ${m[0]} no corresponde al año de la fecha (${String(fecha).slice(0, 4)})`);
+  return `${m[1]}${m[2]}-${String(Number(m[3])).padStart(4, '0')}`;
+}

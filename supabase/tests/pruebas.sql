@@ -301,6 +301,29 @@ begin
   if r.tipo_doc <> 'RECTIFICATIVA' or r.num not like 'RECT26-%' or r.rectifica_a <> f.id then raise exception 'rectificativa: %', r.num; end if;
   if (select estado_cobro from v_facturas where id = f.id) <> 'RECTIFICADA' then raise exception 'original no queda rectificada'; end if;
 end $$;
+-- 0022: registrar una factura anterior (emitida fuera de la app)
+do $$ declare v_org uuid := (select org from ctx); c uuid := (select id from clientes where codigo = 'X2241917S'); f facturas;
+  l jsonb := '[{"descripcion":"Diseño de jardín","cantidad":2,"pvp":100,"igic":7,"categoria":"MANO DE OBRA"},{"descripcion":"Plantas","cantidad":1,"pvp":50,"igic":7,"grupo":"Materiales"}]';
+begin
+  f := public.registrar_factura_anterior(v_org, c, ' emit25-2 ', '2025-11-10', l, 0, 'Pagada en mano', 'DETALLE', null, '2025-11-20');
+  if f.num <> 'EMIT25-0002' or f.serie <> 'EMIT25' or f.estado <> 'HISTORICA' or f.total <> 267.50 or f.emitida_en::date <> '2025-11-10'
+     or f.huella <> 'IMPORTADA-SIN-HUELLA' or f.cliente->>'nombre' <> 'MARIA GABRIELLE WARNECKE' then raise exception 'anterior: %', to_jsonb(f); end if;
+  if (select count(*) from facturas_lineas where factura_id = f.id) <> 2
+     or (select grupo from facturas_lineas where factura_id = f.id and linea = 2) <> 'Materiales' then raise exception 'líneas anteriores'; end if;
+  if (select pendiente from v_facturas where id = f.id) <> 0 then raise exception 'cobro anterior'; end if;
+  -- sin cobro queda pendiente
+  f := public.registrar_factura_anterior(v_org, c, 'EMIT25-0003', '2025-12-01', l);
+  if (select pendiente from v_facturas where id = f.id) <> f.total then raise exception 'anterior sin cobro'; end if;
+  begin perform public.registrar_factura_anterior(v_org, c, 'EMIT25-0002', '2025-11-10', l); raise exception 'número repetido aceptado';
+  exception when others then if sqlerrm not like '%Ya hay%' then raise; end if; end;
+  begin perform public.registrar_factura_anterior(v_org, c, 'EMIT25-0009', '2026-01-10', l); raise exception 'año cambiado aceptado';
+  exception when others then if sqlerrm not like '%año%' then raise; end if; end;
+  begin perform public.registrar_factura_anterior(v_org, c, 'factura 7', '2025-11-10', l); raise exception 'formato aceptado';
+  exception when others then if sqlerrm not like '%formato%' then raise; end if; end;
+  -- la app ya emite desde la EMIT26-0002: no se puede registrar una igual o posterior
+  begin perform public.registrar_factura_anterior(v_org, c, 'EMIT26-0099', '2026-01-10', l); raise exception 'número futuro aceptado';
+  exception when others then if sqlerrm not like '%posterior%' then raise; end if; end;
+end $$;
 select pg_temp.debe_fallar($$update facturas set concepto = 'x'$$, 'rectificativa');
 select pg_temp.debe_fallar($$update facturas set total = 1$$, 'rectificativa');
 do $$ declare n int; begin delete from facturas; get diagnostics n = row_count; if n <> 0 then raise exception 'delete facturas'; end if; end $$;
