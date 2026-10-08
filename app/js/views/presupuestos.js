@@ -47,18 +47,27 @@ export async function vistaPresupuesto(app, id) {
   };
   const pintarLineas = () => {
     const importes = [];
+    const mover = (i, d) => {
+      const j = i + d;
+      [lineas[i], lineas[j]] = [lineas[j], lineas[i]];
+      pintarLineas();
+      editor.querySelectorAll('.linea-pres:not(.cabecera)')[j]?.querySelector(`.mover button:${d < 0 ? 'first-child' : 'last-child'}:not(:disabled)`)?.focus();
+    };
     const recalcular = () => {
       importes.forEach(({ l, el }) => { el.textContent = eur((Number(l.cantidad) || 0) * (Number(l.pvp) || 0)); });
       totalEl.textContent = eur(total());
     };
     montar(editor,
-      h('div.linea-pres.cabecera', { 'aria-hidden': 'true' }, ['Descripción', 'Cantidad', 'Unidad', 'PVP unitario', 'Importe estimado', ''].map(x => h('span', x))),
+      h('div.linea-pres.cabecera', { 'aria-hidden': 'true' }, ['Descripción', 'Cantidad', 'Unidad', 'PVP unitario', 'Importe estimado', '', ''].map(x => h('span', x))),
       lineas.map((l, i) => {
         const importe = h('strong.importe-pres'); importes.push({ l, el: importe });
         return h('div.linea-pres',
           campo(l, 'descripcion', 'Descripción', 'text'), campo(l, 'cantidad', 'Cantidad', 'number', recalcular), campo(l, 'unidad', 'Unidad', 'text'),
           campo(l, 'pvp', 'PVP unitario', 'number', recalcular), h('span.importe-pres-wrap', h('span.rotulo', 'Importe estimado'), importe),
-          h('button.btn.enlace.quitar', { type: 'button', title: 'Quitar línea', onclick: () => { lineas.splice(i, 1); if (!lineas.length) lineas.push(lineaLibre()); pintarLineas(); } }, '✕'));
+          h('button.btn.enlace.quitar', { type: 'button', title: 'Quitar línea', onclick: () => { lineas.splice(i, 1); if (!lineas.length) lineas.push(lineaLibre()); pintarLineas(); } }, '✕'),
+          h('span.mover',
+            h('button.btn.enlace', { type: 'button', disabled: i === 0, 'aria-label': `Subir partida ${i + 1}`, title: 'Subir', onclick: () => mover(i, -1) }, '▲'),
+            h('button.btn.enlace', { type: 'button', disabled: i === lineas.length - 1, 'aria-label': `Bajar partida ${i + 1}`, title: 'Bajar', onclick: () => mover(i, 1) }, '▼')));
       }),
       h('button.btn', { type: 'button', onclick: () => { lineas.push(lineaLibre()); pintarLineas(); } }, '+ Partida libre'));
     recalcular();

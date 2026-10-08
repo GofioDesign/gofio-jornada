@@ -118,3 +118,11 @@ test('urlWeb y urlWhatsApp', async () => {
   assert.equal(urlWhatsApp('0049 151 2345678'), 'https://wa.me/491512345678');
   assert.equal(urlWhatsApp('12'), null);
 });
+
+test('ordenLineas: usa «orden» si existe y si no el número de línea', async () => {
+  const { ordenLineas, borradorRectificativo } = await import('../app/js/lib/factura.js');
+  const ls = [{ linea: 1, orden: 3 }, { linea: 2, orden: 1 }, { linea: 3, orden: 2 }];
+  assert.deepEqual(ordenLineas(ls).map(l => l.linea), [2, 3, 1]);
+  assert.deepEqual(ordenLineas([{ linea: 2 }, { linea: 1 }]).map(l => l.linea), [1, 2]);
+  assert.deepEqual(borradorRectificativo({ lineas: ls.map(l => ({ ...l, descripcion: 'L' + l.linea, cantidad: 1, pvp_ud: 1 })) }, '2026-10-09').lineas.map(l => l.descripcion), ['L2', 'L3', 'L1']);
+});

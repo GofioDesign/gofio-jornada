@@ -345,7 +345,7 @@ const demo = {
     const d = db(); const f = d.facturas.find(y => y.id === id);
     for (const l of x.lineas || []) {
       if (!String(l.descripcion || '').trim()) throw new Error('Todas las líneas necesitan una descripción');
-      Object.assign(f.lineas.find(y => y.linea === l.linea), { descripcion: l.descripcion.trim(), grupo: String(l.grupo || '').trim() || null });
+      Object.assign(f.lineas.find(y => y.linea === l.linea), { descripcion: l.descripcion.trim(), grupo: String(l.grupo || '').trim() || null }, l.orden ? { orden: l.orden } : {});
     }
     if (String(x.concepto || '').trim()) f.concepto = x.concepto.trim();
     f.observaciones = String(x.observaciones || '').trim() || null; f.textos_corregidos_en = new Date().toISOString();

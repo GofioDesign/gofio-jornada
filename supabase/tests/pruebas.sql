@@ -290,6 +290,11 @@ begin
   exception when others then if sqlerrm not like '%no existe%' then raise; end if; end;
   begin perform public.corregir_textos_factura(f.id, '[{"linea":1,"descripcion":"  "}]'); raise exception 'descripción vacía aceptada';
   exception when others then if sqlerrm not like '%descripción%' then raise; end if; end;
+  -- 0021: orden de las líneas (solo presentación)
+  g := public.corregir_textos_factura(f.id, '[{"linea":1,"descripcion":"Desplazamiento al domicilio","orden":2},{"linea":2,"descripcion":"Cable","grupo":"Materiales","orden":1}]',
+        null, 'Garantía 6 meses');
+  if (select string_agg(linea::text, ',' order by coalesce(orden, linea)) from facturas_lineas where factura_id = f.id) <> '2,1'
+     or g.huella <> h then raise exception 'orden de líneas'; end if;
   -- rectificativa: nueva serie RECT y la original queda RECTIFICADA
   r := public.emitir_factura((select org from ctx), (select id from clientes where codigo = 'B00000000'), '2026-09-24',
         '[{"descripcion":"Desplazamiento al domicilio","cantidad":1,"pvp":25,"igic":7}]', 0, null, null, null, null, f.id, 'Precio del desplazamiento');

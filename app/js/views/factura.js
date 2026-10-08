@@ -2,7 +2,7 @@
 // Idiomas: ES y EN. Los datos de emisor y cliente son los congelados al emitir.
 import { api } from '../api.js';
 import { h, montar, accion, aviso, dialogo, hoyISO } from '../ui.js';
-import { porCategoria, resumenPorCategoria, totalPorIgic, conceptoDe, porConcepto, borradorRectificativo, plantillasObs, anadirObs, urlWeb, urlWhatsApp } from '../lib/factura.js';
+import { porCategoria, resumenPorCategoria, totalPorIgic, conceptoDe, porConcepto, borradorRectificativo, plantillasObs, anadirObs, urlWeb, urlWhatsApp, ordenLineas } from '../lib/factura.js';
 
 export const TXT = {
   ES: {
@@ -26,6 +26,7 @@ export const TXT = {
 export async function vistaFactura(app, id) {
   const f = await api.factura(app.org, id);
   if (!f) return h('p.vacio', 'Factura no encontrada.');
+  f.lineas = ordenLineas(f.lineas);
   const hoja = h('article.doc-factura');
   const idioma = h('select', { 'aria-label': 'Idioma del PDF', onchange: () => pintar() },
     h('option', { value: 'ES' }, 'Español'), h('option', { value: 'EN' }, 'English'));
@@ -52,13 +53,21 @@ export async function vistaFactura(app, id) {
     hoja);
 }
 
-// Corregir textos: descripción y «Agrupar bajo» de cada línea, concepto (TOTAL) y observaciones. Los importes no cambian.
+// Corregir textos: descripción, «Agrupar bajo» y orden de las líneas, concepto (TOTAL) y observaciones. Los importes no cambian.
 async function corregirTextos(app, f) {
-  const lineas = [...(f.lineas || [])].sort((a, b) => a.linea - b.linea);
   const conGrupo = f.agrupacion === 'CONCEPTO';
-  const filas = lineas.map(l => ({ l,
+  const filas = ordenLineas(f.lineas).map(l => ({ l,
     desc: h('input', { value: l.descripcion || '', 'aria-label': `Descripción de la línea ${l.linea}`, required: true }),
     grupo: h('input', { value: l.grupo || '', placeholder: 'Agrupar bajo (vacío: sale con su descripción)', 'aria-label': `Agrupar bajo, línea ${l.linea}`, maxLength: 250 }) }));
+  const inicial = filas.map(x => x.l.linea).join();
+  const lista = h('div.ct-lineas');
+  const mover = (i, d) => { const j = i + d; [filas[i], filas[j]] = [filas[j], filas[i]]; pintar(); lista.children[j]?.querySelector(`.mover button:${d < 0 ? 'first-child' : 'last-child'}:not(:disabled)`)?.focus(); };
+  const pintar = () => lista.replaceChildren(...filas.map((x, i) => h('div.ct-linea',
+    h('span.mover',
+      h('button.btn.enlace', { type: 'button', disabled: i === 0, 'aria-label': `Subir línea ${i + 1}`, title: 'Subir', onclick: () => mover(i, -1) }, '▲'),
+      h('button.btn.enlace', { type: 'button', disabled: i === filas.length - 1, 'aria-label': `Bajar línea ${i + 1}`, title: 'Bajar', onclick: () => mover(i, 1) }, '▼')),
+    x.desc, conGrupo ? x.grupo : null)));
+  pintar();
   const concepto = f.agrupacion === 'TOTAL' ? h('input', { id: 'ct-concepto', value: f.concepto || '', maxLength: 250 }) : null;
   const obs = h('textarea', { id: 'ct-obs', rows: 4, value: f.observaciones || '' });
   const plantillas = plantillasObs(app.e?.config);
@@ -66,16 +75,19 @@ async function corregirTextos(app, f) {
     onchange: ev => { const p = plantillas[ev.target.value]; ev.target.value = ''; if (p) obs.value = anadirObs(obs.value, p.texto); } },
     h('option', { value: '' }, 'Añadir observación recurrente…'), plantillas.map((p, i) => h('option', { value: i }, p.titulo || p.texto.slice(0, 60)))) : null;
   const form = h('form.formulario.corregir-textos',
-    h('p.ayuda', 'Solo cambian los textos: los importes, la fecha y el número se quedan igual. Si la factura ya la tiene el cliente y cambia algo importante, mejor «Rectificar».'),
-    filas.map(x => h('div.ct-linea', h('span.ct-num', `${x.l.linea}`), x.desc, conGrupo ? x.grupo : null)),
+    h('p.ayuda', 'Solo cambian los textos y el orden de las líneas: los importes, la fecha y el número se quedan igual. Si la factura ya la tiene el cliente y cambia algo importante, mejor «Rectificar».'),
+    lista,
     concepto ? [h('label', { for: 'ct-concepto' }, 'Concepto (sale en la factura)'), concepto] : null,
     h('label', { for: 'ct-obs' }, 'Observaciones'), elegirObs, obs);
   const guardado = await dialogo(`Corregir textos de ${f.num}`, form, [
     { texto: 'Cancelar', valor: null },
     { texto: 'Guardar', clase: 'primario', valor: async () => {
       if (!form.reportValidity()) return undefined;
-      const cambios = filas.filter(x => x.desc.value.trim() !== (x.l.descripcion || '') || (conGrupo && x.grupo.value.trim() !== (x.l.grupo || '')))
-        .map(x => ({ linea: x.l.linea, descripcion: x.desc.value.trim(), grupo: conGrupo ? x.grupo.value.trim() : x.l.grupo || '' }));
+      const reordenada = filas.map(x => x.l.linea).join() !== inicial;
+      const cambios = filas.map((x, i) => ({ x, i }))
+        .filter(({ x }) => reordenada || x.desc.value.trim() !== (x.l.descripcion || '') || (conGrupo && x.grupo.value.trim() !== (x.l.grupo || '')))
+        .map(({ x, i }) => ({ linea: x.l.linea, descripcion: x.desc.value.trim(), grupo: conGrupo ? x.grupo.value.trim() : x.l.grupo || '',
+                              ...(reordenada ? { orden: i + 1 } : {}) }));
       return (await accion(null, () => api.corregirTextosFactura(f.id, { lineas: cambios, concepto: concepto?.value, observaciones: obs.value }))) || undefined;
     } }]);
   if (guardado) { aviso('Textos corregidos', 'ok'); window.dispatchEvent(new HashChangeEvent('hashchange')); }
