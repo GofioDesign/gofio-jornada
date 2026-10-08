@@ -2,7 +2,7 @@
 // Idiomas: ES y EN. Los datos de emisor y cliente son los congelados al emitir.
 import { api } from '../api.js';
 import { h, montar } from '../ui.js';
-import { porCategoria, resumenPorCategoria } from '../lib/factura.js';
+import { porCategoria, resumenPorCategoria, totalPorIgic, conceptoDe } from '../lib/factura.js';
 
 export const TXT = {
   ES: {
@@ -102,16 +102,21 @@ export function documento(f, t, logo) {
   ];
 }
 
-// Tabla de líneas según cómo se presenta la factura (facturas.agrupacion): DETALLE, CATEGORIAS o RESUMEN.
+// Tabla de líneas según cómo se presenta la factura (facturas.agrupacion): DETALLE, CATEGORIAS, RESUMEN, CONCEPTO o TOTAL.
 function lineasDoc(f, lineas, t, { eur, num, pct, conDto }) {
   const fila = l => h('tr',
     h('td', l.descripcion), h('td.n', `${num(l.cantidad)} ${l.unidad || ''}`.trim()), h('td.n', eur(l.pvp_ud)),
     conDto ? h('td.n', Number(l.dto_pct) ? pct(l.dto_pct) : '') : null, h('td.n', pct(l.igic_pct)), h('td.n', eur(l.base)));
   const columnas = 5 + (conDto ? 1 : 0);
-  if (f.agrupacion === 'RESUMEN') {
-    return h('table.df-lineas',
-      h('thead', h('tr', h('th', t.desc), h('th.n', t.igic), h('th.n', t.importe))),
-      h('tbody', resumenPorCategoria(lineas).map(r => h('tr', h('td', t.cat[r.categoria]), h('td.n', pct(r.igic_pct)), h('td.n', eur(r.base))))));
+  // Sin cantidad ni precio: concepto, IGIC e importe
+  const sinPrecio = filas => h('table.df-lineas',
+    h('thead', h('tr', h('th', t.desc), h('th.n', t.igic), h('th.n', t.importe))),
+    h('tbody', filas.map(([desc, igic, base]) => h('tr', h('td', desc), h('td.n', pct(igic)), h('td.n', eur(base))))));
+  if (f.agrupacion === 'RESUMEN') return sinPrecio(resumenPorCategoria(lineas).map(r => [t.cat[r.categoria], r.igic_pct, r.base]));
+  if (f.agrupacion === 'CONCEPTO') return sinPrecio(lineas.map(l => [l.descripcion, l.igic_pct, l.base]));
+  if (f.agrupacion === 'TOTAL') {
+    const concepto = conceptoDe(f.concepto, lineas);
+    return sinPrecio(totalPorIgic(lineas).map(r => [concepto, r.igic_pct, r.base]));
   }
   const cabecera = h('thead', h('tr', h('th', t.desc), h('th.n', t.cant), h('th.n', t.precio), conDto ? h('th.n', t.dto) : null, h('th.n', t.igic), h('th.n', t.importe)));
   if (f.agrupacion === 'CATEGORIAS') {

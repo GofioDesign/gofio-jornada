@@ -28,6 +28,10 @@ export async function vistaBorrador(app, id) {
   const obs = h('textarea', { id: 'b-obs', rows: 2, value: d.observaciones || '', oninput: () => previa() });
   const idioma = h('select', { 'aria-label': 'Idioma del PDF', onchange: () => previa() }, h('option', { value: 'ES' }, 'Español'), h('option', { value: 'EN' }, 'English'));
   idioma.value = cli()?.idioma === 'EN' ? 'EN' : 'ES';
+  const concepto = h('input', { id: 'b-concepto', type: 'text', maxLength: 250, value: d.concepto || '', oninput: () => previa(),
+    placeholder: 'Ej.: Servicios de diseño, septiembre 2026' });
+  const cajaConcepto = h('div', h('label', { for: 'b-concepto' }, 'Concepto que sale en la factura'), concepto,
+    h('p.ayuda', 'Si lo dejas vacío, se juntan las descripciones de las líneas. El importe es la suma de todas.'));
   const agrupacion = h('select', { id: 'b-agrupacion', onchange: () => previa() },
     Object.entries(AGRUPACIONES).map(([v, t]) => h('option', { value: v }, t)));
   agrupacion.value = d.agrupacion || 'DETALLE';
@@ -50,16 +54,18 @@ export async function vistaBorrador(app, id) {
 
   const validas = () => lineas.filter(l => String(l.descripcion || '').trim() || Number(l.pvp));
   const datos = () => ({ fecha: fecha.value, irpf_pct: Number(irpf.value) || 0, observaciones: obs.value.trim() || null, lineas: validas(), agrupacion: agrupacion.value,
+                         concepto: concepto.value.trim() || null,
                          desde: d.desde || null, hasta: d.hasta || null, horas: d.horas || null });
 
   const importes = [];
   const previa = () => {
+    cajaConcepto.hidden = agrupacion.value !== 'TOTAL';
     const t = calcular(validas(), irpf.value);
     const porLinea = calcular(lineas, 0).lineas;
     importes.forEach((el, i) => { el.textContent = eur(porLinea[i]?.base); });
     const f = { borrador: true, fecha: fecha.value, vencimiento: fecha.value && sumarDias(fecha.value, Number(cfg.dias_vencimiento ?? 30)),
       periodo_desde: d.desde, periodo_hasta: d.hasta, cliente: cli() || {}, emisor: emisorDe(app.e, t.igic_desglose),
-      agrupacion: agrupacion.value,
+      agrupacion: agrupacion.value, concepto: concepto.value,
       lineas: t.lineas.map(l => ({ descripcion: l.descripcion, cantidad: l.cantidad, unidad: l.unidad, pvp_ud: l.pvp, dto_pct: l.dto, igic_pct: l.igic, base: l.base, categoria: l.categoria })),
       base: t.base, igic: t.igic, igic_desglose: t.igic_desglose, irpf_pct: Number(irpf.value) || 0, irpf: t.irpf, total: t.total, observaciones: obs.value.trim() };
     montar(hoja, ...documento(f, TXT[idioma.value], app.e.logo_url));
@@ -128,6 +134,7 @@ export async function vistaBorrador(app, id) {
         h('h3', 'Líneas'), editor,
         h('div.dos', h('div', h('label', { for: 'b-irpf' }, 'Retención IRPF (%)'), irpf),
           h('div', h('label', { for: 'b-agrupacion' }, 'Cómo salen las líneas en la factura'), agrupacion)),
+        cajaConcepto,
         h('label', { for: 'b-obs' }, 'Observaciones (salen en la factura)'), obs,
         h('div.acciones',
           h('button.btn', { onclick: ev => accion(ev.currentTarget, async () => { await guardar(); aviso('Borrador guardado', 'ok'); }) }, 'Guardar borrador'),

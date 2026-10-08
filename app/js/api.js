@@ -3,7 +3,7 @@
 //  - Modo DEMO: sin configurar nada; guarda en este navegador para probar la app.
 import { CONFIG } from '../config.js';
 import { estadoActual, tramos, totales, diaLocal } from './lib/jornada.js';
-import { calcular, irpfCliente, emisorDe, categoriaDe } from './lib/factura.js';
+import { calcular, irpfCliente, emisorDe, categoriaDe, conceptoDe } from './lib/factura.js';
 
 export const DEMO = !CONFIG.SUPABASE_URL || /\?demo|#demo/.test(location.href);
 
@@ -135,7 +135,8 @@ const supa = {
   async emitirFactura(org, d) {
     const c = await cliente();
     return ok(await c.rpc('emitir_factura', { p_org: org, p_cliente: d.cliente_id, p_fecha: d.fecha, p_lineas: d.lineas, p_irpf_pct: d.irpf_pct ?? null,
-      p_observaciones: d.observaciones || null, p_periodo_desde: d.desde || null, p_periodo_hasta: d.hasta || null, p_horas: d.horas || null, p_agrupacion: d.agrupacion || 'DETALLE' }));
+      p_observaciones: d.observaciones || null, p_periodo_desde: d.desde || null, p_periodo_hasta: d.hasta || null, p_horas: d.horas || null, p_agrupacion: d.agrupacion || 'DETALLE',
+      p_concepto: d.agrupacion === 'TOTAL' ? d.concepto || null : null }));
   },
 };
 
@@ -325,7 +326,8 @@ const demo = {
     const f = { id: uid(), org_id: org, num: 'DEMO-' + String(n).padStart(4, '0'), tipo_doc: 'FACTURA', fecha: x.fecha, vencimiento: new Date(Date.parse(x.fecha) + 30 * 864e5).toISOString().slice(0, 10),
       periodo_desde: x.desde || null, periodo_hasta: x.hasta || null, cliente: { ...c }, emisor: emisorDe(o, t.igic_desglose),
       base: t.base, igic: t.igic, igic_desglose: t.igic_desglose, irpf_pct: x.irpf_pct ?? irpfCliente(c, o?.config), irpf: t.irpf, total: t.total,
-      observaciones: x.observaciones || null, agrupacion: x.agrupacion || 'DETALLE', lineas, huella: 'demo', estado_cobro: 'PENDIENTE' };
+      observaciones: x.observaciones || null, agrupacion: x.agrupacion || 'DETALLE',
+      concepto: conceptoDe(x.agrupacion === 'TOTAL' ? x.concepto : '', x.lineas), lineas, huella: 'demo', estado_cobro: 'PENDIENTE' };
     d.facturas.unshift(f);
     (x.horas || []).forEach(h => d.facturadas.push([x.cliente_id, h.user_id, h.dia, h.tipo].join('|')));
     guardar(d); return f;

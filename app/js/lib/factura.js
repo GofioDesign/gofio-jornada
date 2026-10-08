@@ -35,7 +35,10 @@ export const irpfCliente = (cliente, config = {}) => cliente?.aplica_irpf ? Numb
 // Categorías de factura (0014_categorias_factura.sql), en el orden en que salen en el documento.
 export const CATEGORIAS = ['MANO DE OBRA', 'MATERIALES', 'PEQUEÑO MATERIAL', 'TRANSPORTE', 'OTROS'];
 export const NOMBRE_CATEGORIA = { 'MANO DE OBRA': 'Mano de obra', MATERIALES: 'Materiales', 'PEQUEÑO MATERIAL': 'Pequeño material', TRANSPORTE: 'Transporte', OTROS: 'Otros' };
-export const AGRUPACIONES = { DETALLE: 'Línea a línea', CATEGORIAS: 'Agrupadas por categoría', RESUMEN: 'Un importe por categoría' };
+export const AGRUPACIONES = {
+  DETALLE: 'Línea a línea (cantidad × precio)', CATEGORIAS: 'Agrupadas por categoría', RESUMEN: 'Un importe por categoría',
+  CONCEPTO: 'Cada concepto con su importe (sin precio por unidad)', TOTAL: 'Un solo concepto con el total',
+};
 
 // Igual que public.categoria_de_familia.
 export function categoriaDeFamilia(familia) {
@@ -55,6 +58,17 @@ export function porCategoria(lineas = []) {
     return { categoria, lineas: ls, base: ls.reduce((s, l) => s + Math.round((Number(l.base) || 0) * 100), 0) / 100 };
   }).filter(g => g.lineas.length);
 }
+
+// Una fila por tipo de IGIC con la suma de las bases (agrupación TOTAL).
+export function totalPorIgic(lineas = []) {
+  const m = new Map();
+  lineas.forEach(l => { const k = Number(l.igic_pct) || 0; m.set(k, (m.get(k) || 0) + Math.round((Number(l.base) || 0) * 100)); });
+  return [...m].sort((a, b) => a[0] - b[0]).map(([igic_pct, c]) => ({ igic_pct, base: c / 100 }));
+}
+
+// Texto del concepto único: el escrito, o las descripciones juntas como hace emitir_factura (0018).
+export const conceptoDe = (concepto, lineas = []) =>
+  (String(concepto || '').trim() || lineas.map(l => l.descripcion).filter(Boolean).join(' · ')).slice(0, 250);
 
 // Una fila por categoría y tipo de IGIC (si una categoría mezcla tipos, sale una fila por tipo).
 export function resumenPorCategoria(lineas = []) {

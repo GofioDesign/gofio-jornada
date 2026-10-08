@@ -1,7 +1,7 @@
 // npm test
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { calcular, irpfCliente, categoriaDeFamilia, categoriaDe, porCategoria, resumenPorCategoria } from '../app/js/lib/factura.js';
+import { calcular, irpfCliente, categoriaDeFamilia, categoriaDe, porCategoria, resumenPorCategoria, totalPorIgic, conceptoDe } from '../app/js/lib/factura.js';
 
 test('calcular: mismos totales que la prueba SQL de emitir_factura', () => {
   // 75 € -5 % + 3,5 h a 30 €, IGIC 7 %, IRPF 15 % (supabase/tests/pruebas.sql)
@@ -55,4 +55,15 @@ test('agrupar por categoría: orden fijo, subtotales exactos y resumen por tipo 
   assert.deepEqual(g.map(x => [x.categoria, x.base]), [['MANO DE OBRA', 105], ['MATERIALES', 52], ['PEQUEÑO MATERIAL', 0.3]]);
   assert.deepEqual(resumenPorCategoria(ls).map(x => [x.categoria, x.igic_pct, x.base]),
     [['MANO DE OBRA', 7, 105], ['MATERIALES', 0, 10], ['MATERIALES', 7, 42], ['PEQUEÑO MATERIAL', 7, 0.3]]);
+});
+
+test('totalPorIgic y conceptoDe: un solo concepto con el total (agrupación TOTAL)', () => {
+  const ls = [
+    { descripcion: 'Diseño', base: 0.1, igic_pct: 7 }, { descripcion: 'Maquetación', base: 0.2, igic_pct: 7 },
+    { descripcion: 'Libro', base: 40, igic_pct: 0 },
+  ];
+  assert.deepEqual(totalPorIgic(ls), [{ igic_pct: 0, base: 40 }, { igic_pct: 7, base: 0.3 }]);   // céntimos exactos
+  assert.equal(conceptoDe('  Servicios de septiembre ', ls), 'Servicios de septiembre');
+  assert.equal(conceptoDe('', ls), 'Diseño · Maquetación · Libro');
+  assert.equal(conceptoDe('x'.repeat(300), ls).length, 250);
 });
