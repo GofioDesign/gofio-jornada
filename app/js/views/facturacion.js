@@ -1,7 +1,7 @@
 // Módulo FACTURACIÓN (solo testers): listado de facturas y borradores, detalle con PDF,
 // borradores editables y "facturar horas" (convierte la jornada de un cliente en un borrador).
 import { api } from '../api.js';
-import { h, montar, accion, eur, fecha, hoyISO, sumarDias } from '../ui.js';
+import { h, montar, accion, eur, fecha, hoyISO, sumarDias, preferencia } from '../ui.js';
 import { fmtMin } from '../lib/jornada.js';
 import { calcular, irpfCliente } from '../lib/factura.js';
 import { vistaFactura } from './factura.js';
@@ -59,10 +59,27 @@ async function facturarHoras(app, clienteId) {
   if (!c) return h('p.vacio', 'Cliente no encontrado.');
   const desde = h('input', { type: 'date', value: sumarDias(hoy, -30), 'aria-label': 'Desde' });
   const hasta = h('input', { type: 'date', value: hoy, 'aria-label': 'Hasta' });
-  const prodHora = productos.find(p => p.unidad === 'h') || {};
-  const prodDesp = productos.find(p => /TRANS|DESPL/i.test(p.codigo)) || {};
-  const precioHora = h('input', { type: 'number', step: '0.01', min: 0, value: prodHora.pvp ?? 35, 'aria-label': 'Precio por hora' });
-  const precioDesp = h('input', { type: 'number', step: '0.01', min: 0, value: prodDesp.pvp ?? 25, 'aria-label': 'Precio por desplazamiento' });
+  // Producto del catálogo para cada línea: lo elige quien factura (se recuerda la última elección).
+  // Sin producto, la línea sale como «Horas de trabajo» / «Desplazamiento» genéricos.
+  const candidatosHora = productos.filter(p => p.unidad === 'h');
+  const candidatosDesp = productos.filter(p => /TRANS|DESPL/i.test(p.codigo));
+  const selectorProducto = (lista, clave, generico) => {
+    const guardado = preferencia(clave);
+    return h('select', { 'aria-label': 'Producto' },
+      h('option', { value: '' }, generico),
+      lista.map(p => h('option', { value: p.id, selected: p.id === guardado }, `${p.codigo} · ${p.descripcion_factura || p.descripcion}`)));
+  };
+  const selHora = selectorProducto(candidatosHora, 'fact-prod-hora', 'Horas de trabajo (sin producto)');
+  const selDesp = selectorProducto(candidatosDesp, 'fact-prod-desp', 'Desplazamiento (sin producto)');
+  let prodHora = {}, prodDesp = {};
+  const precioHora = h('input', { type: 'number', step: '0.01', min: 0, 'aria-label': 'Precio por hora' });
+  const precioDesp = h('input', { type: 'number', step: '0.01', min: 0, 'aria-label': 'Precio por desplazamiento' });
+  const aplicarProductos = () => {
+    prodHora = candidatosHora.find(p => p.id === selHora.value) || {};
+    prodDesp = candidatosDesp.find(p => p.id === selDesp.value) || {};
+    precioHora.value = prodHora.pvp ?? 35; precioDesp.value = prodDesp.pvp ?? 25;
+  };
+  aplicarProductos();
   const igic = Number(app.e.config?.igic_defecto ?? 7);
   const cuerpo = h('div');
   let horas = [];
@@ -73,7 +90,9 @@ async function facturarHoras(app, clienteId) {
     const out = [];
     const porPersona = {};
     trabajo.forEach(x => { porPersona[x.nombre || 'Equipo'] = (porPersona[x.nombre || 'Equipo'] || 0) + x.minutos; });
-    Object.entries(porPersona).forEach(([n, m]) => out.push({ producto_id: prodHora.id || null, codigo: prodHora.codigo || 'HORA', descripcion: `${prodHora.descripcion_factura || 'Horas de trabajo'} (${n}, ${fecha(desde.value)} – ${fecha(hasta.value)})`, cantidad: Math.round(m / 60 * 100) / 100, unidad: 'h', pvp: Number(precioHora.value) || 0, dto: 0, igic: prodHora.igic_pct ?? igic, familia: prodHora.familia, categoria: 'MANO DE OBRA' }));
+    // Fechas de los días realmente facturados, no las del filtro
+    const periodo = xs => { const ds = xs.map(x => x.dia).sort(); return ds[0] === ds.at(-1) ? fecha(ds[0]) : `${fecha(ds[0])} – ${fecha(ds.at(-1))}`; };
+    Object.entries(porPersona).forEach(([n, m]) => out.push({ producto_id: prodHora.id || null, codigo: prodHora.codigo || 'HORA', descripcion: `${prodHora.descripcion_factura || 'Horas de trabajo'} (${n}, ${periodo(trabajo.filter(x => (x.nombre || 'Equipo') === n))})`, cantidad: Math.round(m / 60 * 100) / 100, unidad: 'h', pvp: Number(precioHora.value) || 0, dto: 0, igic: prodHora.igic_pct ?? igic, familia: prodHora.familia, categoria: 'MANO DE OBRA' }));
     const viajes = desp.reduce((s, x) => s + x.tramos, 0);
     if (viajes) out.push({ producto_id: prodDesp.id || null, codigo: prodDesp.codigo || 'DESPL', descripcion: prodDesp.descripcion_factura || 'Desplazamiento', cantidad: viajes, unidad: 'ud', pvp: Number(precioDesp.value) || 0, dto: 0, igic: prodDesp.igic_pct ?? igic, familia: prodDesp.familia, categoria: 'TRANSPORTE' });
     return out;
@@ -103,11 +122,14 @@ async function facturarHoras(app, clienteId) {
   const cargar = async () => { horas = (await api.horasPendientes(app.org, c.id, desde.value, hasta.value)).map(x => ({ ...x, _sel: true })); pintar(); };
   [desde, hasta].forEach(x => x.addEventListener('change', () => accion(null, cargar)));
   [precioHora, precioDesp].forEach(x => x.addEventListener('input', pintar));
+  selHora.addEventListener('change', () => { preferencia('fact-prod-hora', selHora.value); aplicarProductos(); pintar(); });
+  selDesp.addEventListener('change', () => { preferencia('fact-prod-desp', selDesp.value); aplicarProductos(); pintar(); });
   await cargar();
 
   return h('section.pila',
     h('a.volver', { href: '#/facturacion' }, '← Facturación'),
     h('h1', 'Facturar horas · ' + c.nombre),
     h('div.tarjeta', h('div.filtros', desde, hasta),
+      h('div.dos', h('label', 'Producto para las horas', selHora), h('label', 'Producto para los desplazamientos', selDesp)),
       h('div.dos', h('label', 'Precio hora (€)', precioHora), h('label', 'Precio desplazamiento (€)', precioDesp)), cuerpo));
 }
