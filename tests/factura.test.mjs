@@ -1,7 +1,7 @@
 // npm test
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { calcular, irpfCliente, categoriaDeFamilia, categoriaDe, porCategoria, resumenPorCategoria, totalPorIgic, conceptoDe } from '../app/js/lib/factura.js';
+import { calcular, irpfCliente, categoriaDeFamilia, categoriaDe, porCategoria, resumenPorCategoria, totalPorIgic, conceptoDe, porConcepto } from '../app/js/lib/factura.js';
 
 test('calcular: mismos totales que la prueba SQL de emitir_factura', () => {
   // 75 € -5 % + 3,5 h a 30 €, IGIC 7 %, IRPF 15 % (supabase/tests/pruebas.sql)
@@ -66,4 +66,17 @@ test('totalPorIgic y conceptoDe: un solo concepto con el total (agrupación TOTA
   assert.equal(conceptoDe('  Servicios de septiembre ', ls), 'Servicios de septiembre');
   assert.equal(conceptoDe('', ls), 'Diseño · Maquetación · Libro');
   assert.equal(conceptoDe('x'.repeat(300), ls).length, 250);
+});
+
+test('porConcepto: suma las líneas con el mismo grupo e IGIC y deja sueltas las demás', () => {
+  const ls = [
+    { descripcion: 'Transporte urgente', base: 20, igic_pct: 7, grupo: 'Desplazamiento' },
+    { descripcion: 'Plus urgencia', base: 20, igic_pct: 7 },
+    { descripcion: 'Zona 2', base: 30, igic_pct: 7, grupo: ' Desplazamiento ' },
+    { descripcion: 'Cable', base: 0.1, igic_pct: 7, grupo: 'Materiales' },
+    { descripcion: 'Conector', base: 0.2, igic_pct: 7, grupo: 'Materiales' },
+    { descripcion: 'Libro', base: 5, igic_pct: 0, grupo: 'Materiales' },
+  ];
+  assert.deepEqual(porConcepto(ls).map(r => [r.concepto, r.igic_pct, r.base]),
+    [['Desplazamiento', 7, 50], ['Plus urgencia', 7, 20], ['Materiales', 7, 0.3], ['Materiales', 0, 5]]);
 });

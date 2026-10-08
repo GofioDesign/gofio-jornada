@@ -322,7 +322,7 @@ const demo = {
     const o = d.orgs.find(y => y.id === org), c = d.clientes.find(y => y.id === x.cliente_id) || {};
     const t = calcular(x.lineas, x.irpf_pct ?? irpfCliente(c, o?.config));
     const lineas = t.lineas.map((l, i) => ({ linea: i + 1, codigo: l.codigo, descripcion: l.descripcion, cantidad: l.cantidad, unidad: l.unidad, pvp_ud: l.pvp,
-      dto_pct: l.dto || 0, base: l.base, igic_pct: l.igic || 0, igic: l.cuota, familia: l.familia || null, categoria: categoriaDe(l) }));
+      dto_pct: l.dto || 0, base: l.base, igic_pct: l.igic || 0, igic: l.cuota, familia: l.familia || null, categoria: categoriaDe(l), grupo: String(l.grupo || '').trim() || null }));
     const f = { id: uid(), org_id: org, num: 'DEMO-' + String(n).padStart(4, '0'), tipo_doc: 'FACTURA', fecha: x.fecha, vencimiento: new Date(Date.parse(x.fecha) + 30 * 864e5).toISOString().slice(0, 10),
       periodo_desde: x.desde || null, periodo_hasta: x.hasta || null, cliente: { ...c }, emisor: emisorDe(o, t.igic_desglose),
       base: t.base, igic: t.igic, igic_desglose: t.igic_desglose, irpf_pct: x.irpf_pct ?? irpfCliente(c, o?.config), irpf: t.irpf, total: t.total,
