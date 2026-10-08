@@ -91,6 +91,13 @@ export async function vistaBorrador(app, id) {
     montar(hoja, ...documento(f, TXT[idioma.value], app.e.logo_url));
   };
 
+  const mover = (i, d) => {
+    const j = i + d;
+    if (j < 0 || j >= lineas.length) return;
+    [lineas[i], lineas[j]] = [lineas[j], lineas[i]];
+    pintarLineas();
+    editor.querySelectorAll('.linea-ed:not(.cabecera)')[j]?.querySelector(`.mover button:${d < 0 ? 'first-child' : 'last-child'}:not(:disabled)`)?.focus();
+  };
   const pintarLineas = () => {
     importes.length = 0;
     // Cada campo lleva su rótulo (visible solo en móvil; en escritorio lo da la fila de cabecera)
@@ -112,7 +119,11 @@ export async function vistaBorrador(app, id) {
           campo(l, 'igic', 'IGIC %', { type: 'number', step: 'any', min: 0, max: 20 }),
           imp,
           h('button.btn.enlace.quitar', { type: 'button', 'aria-label': `Quitar línea ${i + 1}`, title: 'Quitar línea',
-            onclick: () => { lineas.splice(i, 1); if (!lineas.length) lineas.push(lineaVacia()); pintarLineas(); } }, '✕'));
+            onclick: () => { lineas.splice(i, 1); if (!lineas.length) lineas.push(lineaVacia()); pintarLineas(); } }, '✕'),
+          // Subir y bajar: el orden de las líneas es el orden en la factura (también el de los conceptos agrupados)
+          h('span.mover',
+            h('button.btn.enlace', { type: 'button', disabled: i === 0, 'aria-label': `Subir línea ${i + 1}`, title: 'Subir', onclick: () => mover(i, -1) }, '▲'),
+            h('button.btn.enlace', { type: 'button', disabled: i === lineas.length - 1, 'aria-label': `Bajar línea ${i + 1}`, title: 'Bajar', onclick: () => mover(i, 1) }, '▼')));
       }),
       grupos,
       h('div.acciones-lineas', producto,
