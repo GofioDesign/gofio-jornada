@@ -30,7 +30,7 @@ export async function vistaFactura(app, id) {
   const idioma = h('select', { 'aria-label': 'Idioma del PDF', onchange: () => pintar() },
     h('option', { value: 'ES' }, 'Español'), h('option', { value: 'EN' }, 'English'));
   idioma.value = f.cliente?.idioma === 'EN' ? 'EN' : 'ES';
-  const pintar = () => montar(hoja, ...documento(f, TXT[idioma.value], app.e?.logo_url));
+  const pintar = () => montar(hoja, ...documento(f, TXT[idioma.value], app.e?.logo_url, app.e?.config?.logo_tamano));
   pintar();
 
   const pdf = () => imprimir(`${f.num} ${f.cliente?.nombre || ''}`);
@@ -56,7 +56,7 @@ export function imprimir(nombre) {
 }
 
 // Contenido de la hoja. f: factura emitida, o borrador (f.borrador = true, sin número ni huella).
-export function documento(f, t, logo) {
+export function documento(f, t, logo, logoTamano = 'M') {
   const eur = n => (Number(n) || 0).toLocaleString(t.locale, { style: 'currency', currency: 'EUR' });
   const num = n => (Number(n) || 0).toLocaleString(t.locale, { maximumFractionDigits: 3 });
   const pct = n => `${num(n)} %`;
@@ -72,7 +72,7 @@ export function documento(f, t, logo) {
     f.borrador ? h('div.df-marca-agua', { 'aria-hidden': 'true' }, t.borrador) : null,
     h('header.df-cab',
       h('div.df-emisor',
-        logo ? h('img.df-logo', { src: logo, alt: e.marca || '' }) : null,
+        logo ? h('img.df-logo.t-' + (['S', 'M', 'L'].includes(logoTamano) ? logoTamano : 'M'), { src: logo, alt: e.marca || '' }) : null,
         h('strong.df-marca', e.marca || ''),
         bloque(e.titular && e.titular !== e.marca ? e.titular : null, e.nif && `${t.nif}: ${e.nif}`, e.direccion,
           juntar(e.cp, e.localidad), e.provincia, juntar(e.email, e.telefono && `· ${e.telefono}`), e.web)),

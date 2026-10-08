@@ -103,6 +103,8 @@ function empresa(app) {
   let logo = e.logo_url || null;
   const vistaLogo = h('img.logo-previa', { alt: 'Logo' });
   const pintarLogo = () => { vistaLogo.hidden = !logo; if (logo) vistaLogo.src = logo; quitarLogo.style.display = logo ? '' : 'none'; };
+  const TAMANOS = { S: 'Pequeño', M: 'Mediano', L: 'Grande' };
+  const tamLogo = h('select', { id: 'e-logo-tam' }, Object.entries(TAMANOS).map(([v, t]) => h('option', { value: v, selected: (cfg.logo_tamano || 'M') === v }, t)));
   const quitarLogo = h('button.btn.enlace', { type: 'button', onclick: () => { logo = null; pintarLogo(); } }, 'Quitar logo');
   const subirLogo = h('input', { id: 'e-logo', type: 'file', accept: 'image/png,image/jpeg,image/webp,image/svg+xml',
     onchange: ev => accion(null, async () => { const f = ev.target.files[0]; if (f) { logo = await reducirImagen(f); pintarLogo(); } }) });
@@ -117,7 +119,7 @@ function empresa(app) {
           ...(app.facturacion ? { web: v('web'), iban: v('iban'), bic: v('bic'), logo_url: logo } : {}),
           config: { ...cfg, jornada_horas_dia: Number(horas.value) || 8, jornada_geolocalizar: geo.checked,
                     ...(app.facturacion ? { medio_pago_texto: form.querySelector('#e-pago').value.trim() || null,
-                      igic_defecto: Number(form.querySelector('#e-igic').value) || 0,
+                      igic_defecto: Number(form.querySelector('#e-igic').value) || 0, logo_tamano: tamLogo.value,
                       texto_exencion_igic: form.querySelector('#e-exencion').value.trim() || null } : {}) } });
         aviso('Datos guardados', 'ok'); await app.recargar();
       });
@@ -130,6 +132,7 @@ function empresa(app) {
       h('h3', 'Datos para las facturas'),
       h('label', { for: 'e-logo' }, 'Logo (sale en el PDF de las facturas)'),
       h('div.logo-campo', vistaLogo, subirLogo, quitarLogo),
+      h('label', { for: 'e-logo-tam' }, 'Tamaño del logo en la factura'), tamLogo,
       campo('web', 'Web'),
       h('div.dos', h('div', campo('iban', 'IBAN')), h('div', campo('bic', 'BIC'))),
       h('label', { for: 'e-pago' }, 'Forma de pago (texto que sale en la factura)'),
@@ -148,17 +151,38 @@ function empresa(app) {
   return h('div.tarjeta', { id: 'empresa' }, h('h2', 'Empresa'), form);
 }
 
-// Reduce una imagen a 600×240 px como máximo y la devuelve como data URL (PNG para conservar la transparencia).
+// Recorta los márgenes vacíos (transparentes o blancos), reduce la imagen a 900×360 px como máximo
+// y la devuelve como data URL (PNG para conservar la transparencia).
 async function reducirImagen(archivo) {
   const url = URL.createObjectURL(archivo);
   try {
     const img = await new Promise((ok, mal) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => mal(new Error('No se ha podido leer la imagen')); i.src = url; });
-    const k = Math.min(1, 600 / (img.naturalWidth || 600), 240 / (img.naturalHeight || 240));
+    const r = recorteUtil(img);
+    const k = Math.min(1, 900 / r.w, 360 / r.h);
     const c = document.createElement('canvas');
-    c.width = Math.max(1, Math.round((img.naturalWidth || 600) * k)); c.height = Math.max(1, Math.round((img.naturalHeight || 240) * k));
-    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    c.width = Math.max(1, Math.round(r.w * k)); c.height = Math.max(1, Math.round(r.h * k));
+    c.getContext('2d').drawImage(img, r.x, r.y, r.w, r.h, 0, 0, c.width, c.height);
     const datos = c.toDataURL('image/png');
     if (datos.length > 500_000) throw new Error('El logo es demasiado pesado. Prueba con una imagen más sencilla.');
     return datos;
   } finally { URL.revokeObjectURL(url); }
+}
+
+// Rectángulo con contenido de la imagen: descarta bordes transparentes o casi blancos (si no hay nada, la imagen entera).
+function recorteUtil(img) {
+  const W = img.naturalWidth || 600, H = img.naturalHeight || 240;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(img, 0, 0);
+  let d;
+  try { d = x.getImageData(0, 0, W, H).data; } catch { return { x: 0, y: 0, w: W, h: H }; }
+  const vacio = i => d[i + 3] < 16 || (d[i] > 245 && d[i + 1] > 245 && d[i + 2] > 245);
+  let x0 = W, y0 = H, x1 = -1, y1 = -1;
+  for (let y = 0; y < H; y++) for (let xx = 0; xx < W; xx++) {
+    if (vacio((y * W + xx) * 4)) continue;
+    if (xx < x0) x0 = xx; if (xx > x1) x1 = xx; if (y < y0) y0 = y; if (y > y1) y1 = y;
+  }
+  if (x1 < 0) return { x: 0, y: 0, w: W, h: H };
+  const m = Math.round(Math.min(W, H) * 0.02);   // un pequeño margen para no pegar el contenido al borde
+  x0 = Math.max(0, x0 - m); y0 = Math.max(0, y0 - m); x1 = Math.min(W - 1, x1 + m); y1 = Math.min(H - 1, y1 + m);
+  return { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
 }
