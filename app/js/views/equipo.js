@@ -1,6 +1,6 @@
 import { api } from '../api.js';
 import { h, montar, accion, aviso, hora, fecha, hoyISO, sumarDias, ROLES } from '../ui.js';
-import { estadoActual, fmtMin, diaLocal, TIPOS } from '../lib/jornada.js';
+import { estadoActual, fmtMin, diaLocal, TIPOS, filasHorarios, COLUMNAS_HORARIOS } from '../lib/jornada.js';
 import { elegirCliente, marcarErrores } from './jornada.js';
 import { toCSV, descargar } from '../lib/csv.js';
 
@@ -100,12 +100,24 @@ export async function vistaEquipo(app) {
       await api.registrarExportacion(app.org, 'MANUAL_CSV', `${desde.value}..${hasta.value}`).catch(() => { });
     }),
   }, 'Descargar registro (CSV)');
+  // Horarios detallados: cada tramo con su hora de inicio y fin, cliente y proyecto
+  const exportarHorarios = h('button.btn', {
+    onclick: e => accion(e.currentTarget, async () => {
+      const trs = await api.tramos(app.org, desde.value, hasta.value, persona.value || null);
+      if (!trs.length) throw new Error('No hay horarios en ese periodo.');
+      descargar(`horarios_${desde.value}_${hasta.value}.csv`, toCSV(filasHorarios(trs, {
+        persona: nombre, nif: u => miembros.find(m => m.user_id === u)?.nif, cliente: cli,
+        proyecto: id => proyectos.find(p => p.id === id)?.nombre, hora: x => hora(x, app.tz) }), COLUMNAS_HORARIOS));
+      await api.registrarExportacion(app.org, 'MANUAL_CSV', `horarios ${desde.value}..${hasta.value}`).catch(() => { });
+    }),
+  }, 'Descargar horarios (CSV)');
 
   return h('section.pila',
     h('h1', 'Equipo'),
     correcciones, ahora, fichajesEquipo,
     h('div.tarjeta', h('h2', 'Registro de jornada'),
-      h('div.filtros', desde, hasta, persona, exportar), tabla,
+      h('div.filtros', desde, hasta, persona, exportar, exportarHorarios), tabla,
+      h('p.ayuda', 'El registro trae una fila por persona y día. Los horarios, una fila por cada tramo de trabajo, pausa o desplazamiento, con su cliente y proyecto.'),
       h('p.ayuda', '* Incluye correcciones aprobadas. El registro se conserva 4 años y no se puede borrar ni modificar.')),
     h('p.ayuda', 'Roles: ', Object.values(ROLES).join(' · '), '. Gestiona usuarios en Ajustes.'));
 }
