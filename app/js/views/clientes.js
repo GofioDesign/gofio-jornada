@@ -3,6 +3,8 @@ import { h, accion, aviso, dialogo, posicion, hoyISO, sumarDias, preferencia } f
 import { direccionCompleta, wazeUrl, mapsUrl, tieneDestino } from '../lib/mapas.js';
 import { fmtMin } from '../lib/jornada.js';
 
+export const TIPOS_CLIENTE = { PARTICULAR: 'Particular', AUTONOMO: 'Profesional / autónomo', EMPRESA: 'Empresa', ADMINISTRACION: 'Administración pública' };
+
 const puedeEditar = rol => ['propietario', 'admin', 'responsable'].includes(rol);
 
 export async function vistaClientes(app) {
@@ -24,7 +26,7 @@ export async function vistaClientes(app) {
     contador.textContent = `${r.length} de ${clientes.length}`;
     lista.replaceChildren(...(r.length ? r.map(c => h('div.item', { role: 'link', tabIndex: 0,
         onclick: () => { location.hash = '#/clientes/' + c.id; }, onkeydown: e => { if (e.key === 'Enter') location.hash = '#/clientes/' + c.id; } },
-      h('div', h('strong', c.nombre), c.activo === false ? h('span.etiqueta', 'inactivo') : null, h('small', direccionCompleta(c) || 'Sin dirección')),
+      h('div', h('strong', c.nombre), h('span.etiqueta', c.tipo === 'PARTICULAR' || !c.tipo ? 'particular' : 'profesional'), c.activo === false ? h('span.etiqueta', 'inactivo') : null, h('small', direccionCompleta(c) || 'Sin dirección')),
       tieneDestino(c) ? h('span.acciones-rapidas',
         h('a.mini', { href: wazeUrl(c), target: '_blank', rel: 'noopener', onclick: e => e.stopPropagation(), title: 'Waze' }, 'Waze'),
         h('a.mini', { href: mapsUrl(c), target: '_blank', rel: 'noopener', onclick: e => e.stopPropagation(), title: 'Google Maps' }, 'Maps')) : null))
@@ -83,7 +85,7 @@ export async function vistaCliente(app, id) {
     h('div.tarjeta',
       h('h2', 'Datos'),
       h('dl.datos',
-        [['NIF', c.codigo], ['Tipo', c.tipo], ['Teléfono', c.telefono], ['Email', c.email], ['Idioma', c.idioma], ['Notas', c.notas]]
+        [['NIF', c.codigo], ['Tipo', TIPOS_CLIENTE[c.tipo] || c.tipo], ['Retención IRPF', c.aplica_irpf ? (c.irpf_pct != null ? `${c.irpf_pct} %` : 'Sí (la de la empresa)') : null], ['Teléfono', c.telefono], ['Email', c.email], ['Idioma', c.idioma], ['Notas', c.notas]]
           .map(([k, v]) => v ? [h('dt', k), h('dd', v)] : null)),
       puedeEditar(app.rol) ? h('button.btn', { onclick: () => editar(app, c) }, 'Editar') : null));
 }
@@ -94,9 +96,23 @@ export async function editar(app, c, { recargar = true } = {}) {
     const i = h('input', { id: 'f-' + k, value: c[k] ?? '', ...attrs });
     return [h('label', { for: 'f-' + k }, etiqueta), i];
   };
+  // Particular: nunca se le retiene IRPF. Al pasar a profesional se propone aplicarla (se puede desmarcar).
+  const tipo = h('select', { id: 'f-tipo', onchange: () => { aplicaIrpf.checked = tipo.value !== 'PARTICULAR'; sincronizarIrpf(); } },
+    Object.entries(TIPOS_CLIENTE).map(([v, t]) => h('option', { value: v, selected: (c.tipo || 'PARTICULAR') === v }, t)));
+  const aplicaIrpf = h('input', { type: 'checkbox', id: 'f-aplica_irpf', checked: !!c.aplica_irpf, onchange: () => sincronizarIrpf() });
+  const irpfPct = h('input', { id: 'f-irpf_pct', type: 'number', min: 0, max: 50, step: 0.5, value: c.irpf_pct ?? '', placeholder: 'el de la empresa' });
+  const sincronizarIrpf = () => {
+    if (tipo.value === 'PARTICULAR') aplicaIrpf.checked = false;
+    aplicaIrpf.disabled = tipo.value === 'PARTICULAR';
+    irpfPct.disabled = !aplicaIrpf.checked;
+  };
+  sincronizarIrpf();
   const form = h('form.formulario',
     campo('nombre', 'Nombre *', { required: true }),
     campo('codigo', 'NIF / código *', { required: true }),
+    h('div.dos', h('div', h('label', { for: 'f-tipo' }, 'Tipo de cliente'), tipo),
+      h('div', h('label', { for: 'f-irpf_pct' }, 'Retención IRPF (%)'), irpfPct)),
+    h('label.check', aplicaIrpf, ' Aplicar retención IRPF en sus facturas'),
     campo('direccion', 'Dirección'),
     h('div.dos', h('div', campo('cp', 'CP')), h('div', campo('localidad', 'Localidad'))),
     h('div.dos', h('div', campo('municipio', 'Municipio')), h('div', campo('provincia', 'Provincia'))),
@@ -111,7 +127,8 @@ export async function editar(app, c, { recargar = true } = {}) {
         if (!form.reportValidity()) return undefined;
         const v = k => form.querySelector('#f-' + k).value.trim() || null;
         const datos = { id: c.id, nombre: v('nombre'), codigo: v('codigo').toUpperCase(), direccion: v('direccion'), cp: v('cp'), localidad: v('localidad'),
-          municipio: v('municipio'), provincia: v('provincia'), telefono: v('telefono'), email: v('email'), notas: v('notas'), activo: form.querySelector('#f-activo').checked };
+          municipio: v('municipio'), provincia: v('provincia'), telefono: v('telefono'), email: v('email'), notas: v('notas'),
+          tipo: tipo.value, aplica_irpf: aplicaIrpf.checked, irpf_pct: aplicaIrpf.checked && irpfPct.value !== '' ? Number(irpfPct.value) : null, activo: form.querySelector('#f-activo').checked };
         const guardado = await accion(null, () => api.guardarCliente(app.org, datos));
         if (!guardado) return undefined;
         aviso('Cliente guardado', 'ok');
