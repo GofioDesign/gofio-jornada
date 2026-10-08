@@ -125,3 +125,14 @@ export function fmtReloj(ms) {
 export function diaLocal(ms, tz = 'Atlantic/Canary') {
   return new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(ms));
 }
+
+// Horarios detallados para exportar: una fila por tramo (trabajo, pausa o desplazamiento), por orden de persona, día y hora.
+// x: { persona(user_id), nif(user_id), cliente(id), proyecto(id), hora(iso) } para convertir ids y horas en texto.
+const NOMBRE_TRAMO = { TRABAJO: 'Trabajo', PAUSA: 'Pausa', DESPLAZAMIENTO: 'Desplazamiento' };
+export const COLUMNAS_HORARIOS = ['Persona', 'NIF', 'Fecha', 'Tipo', 'Inicio', 'Fin', 'Minutos', 'Horas', 'Cliente', 'Proyecto', 'Km línea recta'];
+export function filasHorarios(trs, x) {
+  return [...trs].sort((a, b) => x.persona(a.user_id).localeCompare(x.persona(b.user_id), 'es') || a.dia.localeCompare(b.dia) || String(a.inicio).localeCompare(String(b.inicio)))
+    .map(t => ({ Persona: x.persona(t.user_id), NIF: x.nif(t.user_id) || '', Fecha: t.dia, Tipo: NOMBRE_TRAMO[t.tipo] || t.tipo,
+      Inicio: t.inicio ? x.hora(t.inicio) : '', Fin: t.fin ? x.hora(t.fin) : '', Minutos: t.minutos, Horas: Math.round(t.minutos / 6) / 10,
+      Cliente: x.cliente(t.cliente_id) || '', Proyecto: x.proyecto(t.proyecto_id) || '', 'Km línea recta': Number(t.km) || 0 }));
+}

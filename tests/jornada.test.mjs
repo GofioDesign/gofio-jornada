@@ -107,3 +107,18 @@ test('CSV compatible con Excel/Sheets en español', () => {
 test('un día pasado sin salida no suma horas abiertas', () => {
   assert.equal(totales(tramos(dia.slice(0, 3), null)).trabajo, 120);
 });
+
+test('filasHorarios: una fila por tramo, ordenadas por persona, día y hora', async () => {
+  const { filasHorarios, COLUMNAS_HORARIOS } = await import('../app/js/lib/jornada.js');
+  const nombres = { a: 'Ana', b: 'Berto' };
+  const filas = filasHorarios([
+    { user_id: 'b', dia: '2026-10-01', tipo: 'TRABAJO', inicio: '2026-10-01T08:00:00Z', fin: '2026-10-01T09:30:00Z', minutos: 90, cliente_id: 'c1', proyecto_id: null, km: null },
+    { user_id: 'a', dia: '2026-10-02', tipo: 'DESPLAZAMIENTO', inicio: '2026-10-02T07:40:00Z', fin: '2026-10-02T08:00:00Z', minutos: 20, cliente_id: null, proyecto_id: 'p1', km: 12.3 },
+    { user_id: 'a', dia: '2026-10-02', tipo: 'TRABAJO', inicio: '2026-10-02T08:00:00Z', fin: null, minutos: 45, cliente_id: null, proyecto_id: null, km: 0 },
+  ], { persona: u => nombres[u], nif: u => u === 'a' ? '1A' : null, cliente: id => id === 'c1' ? 'Casa María' : undefined,
+       proyecto: id => id === 'p1' ? 'Jardín' : undefined, hora: x => x.slice(11, 16) });
+  assert.deepEqual(filas.map(f => [f.Persona, f.Tipo, f.Inicio, f.Fin]), [['Ana', 'Desplazamiento', '07:40', '08:00'], ['Ana', 'Trabajo', '08:00', ''], ['Berto', 'Trabajo', '08:00', '09:30']]);
+  assert.deepEqual(filas[0], { Persona: 'Ana', NIF: '1A', Fecha: '2026-10-02', Tipo: 'Desplazamiento', Inicio: '07:40', Fin: '08:00', Minutos: 20, Horas: 0.3, Cliente: '', Proyecto: 'Jardín', 'Km línea recta': 12.3 });
+  assert.equal(filas[2].Horas, 1.5); assert.equal(filas[2].Cliente, 'Casa María');
+  assert.deepEqual(Object.keys(filas[0]), COLUMNAS_HORARIOS);
+});

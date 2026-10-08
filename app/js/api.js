@@ -101,6 +101,9 @@ const supa = {
   // ---- copias
   async copia(org) { const c = await cliente(); return ok(await c.rpc('copia_jornada', { p_org: org })); },
   async registrarExportacion(org, tipo, periodo) { const c = await cliente(); return ok(await c.rpc('registrar_exportacion', { p_org: org, p_tipo: tipo, p_periodo: periodo })); },
+  async clavesApi(org) { const c = await cliente(); return ok(await c.from('api_claves').select('id, nombre, prefijo, creada_en, revocada_en').eq('org_id', org).order('creada_en', { ascending: false })); },
+  async crearClaveApi(org, nombre) { const c = await cliente(); return ok(await c.rpc('crear_clave_api', { p_org: org, p_nombre: nombre })); },
+  async revocarClaveApi(id) { const c = await cliente(); return ok(await c.rpc('revocar_clave_api', { p_id: id })); },
   async exportaciones(org) { const c = await cliente(); return ok(await c.from('exportaciones').select('*').eq('org_id', org).order('hecha_en', { ascending: false }).limit(20)); },
 
   // ---- facturación (testers)
@@ -305,6 +308,15 @@ const demo = {
 
   async copia(org) { const d = db(); return { formato: 'gofio-jornada/1', generada: new Date().toISOString(), empresa: d.orgs.find(o => o.id === org), miembros: await demo.miembros(org), clientes: await demo.clientes(org), fichajes: await demo.fichajes(org) }; },
   async registrarExportacion(org, tipo, periodo) { const d = db(); d.exportaciones.unshift({ id: uid(), org_id: org, tipo, periodo, ok: true, hecha_en: new Date().toISOString() }); guardar(d); },
+  async clavesApi(org) { return (db().clavesApi || []).filter(k => k.org_id === org).sort((a, b) => b.creada_en.localeCompare(a.creada_en)); },
+  async crearClaveApi(org, nombre) {
+    if (!String(nombre || '').trim()) throw new Error('Ponle un nombre a la clave (p. ej. «Hoja de horarios»)');
+    const d = db(); d.clavesApi = d.clavesApi || [];
+    const clave = 'gj_' + Array.from(crypto.getRandomValues(new Uint8Array(24)), b => b.toString(16).padStart(2, '0')).join('');
+    d.clavesApi.push({ id: uid(), org_id: org, nombre: nombre.trim(), prefijo: clave.slice(0, 9), creada_en: new Date().toISOString(), revocada_en: null });
+    guardar(d); return clave;
+  },
+  async revocarClaveApi(id) { const d = db(); const k = (d.clavesApi || []).find(x => x.id === id); if (k) k.revocada_en ||= new Date().toISOString(); guardar(d); },
   async exportaciones(org) { return db().exportaciones.filter(e => e.org_id === org); },
 
   async horasPendientes(org, cli, desde, hasta) {

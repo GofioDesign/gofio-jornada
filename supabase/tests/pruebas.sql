@@ -483,6 +483,50 @@ select pg_temp.debe_fallar($$delete from fichajes_anulados$$, 'no se puede');
 select pg_temp.debe_fallar($$update fichajes_anulados set motivo = 'x'$$, 'no se puede');
 set role authenticated;
 
+-- ===== 11. API de solo lectura con clave (0023) =====
+reset role;
+create temp table clave_api (clave text);
+grant all on clave_api to authenticated, anon;
+set role authenticated;
+select pg_temp.como('00000000-0000-0000-0000-00000000000b', 'empleado@gofio.test');
+select pg_temp.debe_fallar($$select public.crear_clave_api((select org from ctx), 'Hoja')$$, 'propietario');
+select pg_temp.como('00000000-0000-0000-0000-00000000000a', 'propietario@gofio.test');
+select pg_temp.debe_fallar($$select public.crear_clave_api((select org from ctx), ' ')$$, 'nombre');
+insert into clave_api select public.crear_clave_api((select org from ctx), 'Hoja de horarios');
+do $$ begin
+  if (select clave from clave_api) !~ '^gj_[0-9a-f]{48}$' then raise exception 'formato de clave'; end if;
+  if (select count(*) from api_claves) <> 1 or exists (select 1 from api_claves where huella like '%' || (select clave from clave_api) || '%')
+    then raise exception 'la clave se guarda en claro'; end if;
+end $$;
+select pg_temp.debe_fallar($$insert into api_claves (org_id, nombre, prefijo, huella, creada_por) values ((select org from ctx), 'x', 'x', 'x', auth.uid())$$, 'permission denied');
+-- un visitante sin sesión lee con la clave, y solo con ella
+reset role;
+select pg_temp.como('', '');
+set role anon;
+do $$ declare k text := (select clave from clave_api); n int; begin
+  select count(*) into n from public.api_horarios(k, '2026-09-21', '2026-09-21');
+  if n = 0 then raise exception 'api_horarios sin filas'; end if;
+  if exists (select 1 from public.api_horarios(k, '2026-09-21', '2026-09-21') where persona is null or tipo is null) then raise exception 'api_horarios incompleto'; end if;
+  if (select count(*) from public.api_resumen(k, '2026-09-21', '2026-09-21')) = 0 then raise exception 'api_resumen sin filas'; end if;
+  if not exists (select 1 from public.api_facturas(k, '2025-01-01', '2025-12-31') where num = 'EMIT25-0001') then raise exception 'api_facturas'; end if;
+  begin perform public.api_horarios('gj_falsa', '2026-09-21', '2026-09-21'); raise exception 'clave falsa aceptada';
+  exception when others then if sqlerrm not like '%no válida%' then raise; end if; end;
+  begin perform public.api_horarios(k, '2024-01-01', '2026-09-21'); raise exception 'periodo largo aceptado';
+  exception when others then if sqlerrm not like '%un año%' then raise; end if; end;
+end $$;
+select pg_temp.debe_fallar($$select * from api_claves$$, 'permission denied');
+-- revocada deja de servir
+reset role;
+select pg_temp.como('00000000-0000-0000-0000-00000000000a', 'propietario@gofio.test');
+set role authenticated;
+select public.revocar_clave_api((select id from api_claves limit 1));
+reset role;
+select pg_temp.como('', '');
+set role anon;
+select pg_temp.debe_fallar(format('select * from public.api_horarios(%L, %L, %L)', (select clave from clave_api), '2026-09-21', '2026-09-21'), 'revocada');
+reset role;
+set role authenticated;
+
 -- un visitante SIN sesión (anon) no puede ejecutar ninguna función
 reset role;
 select pg_temp.como('', '');
@@ -494,7 +538,8 @@ select pg_temp.debe_fallar($$select * from public.mis_invitaciones()$$, 'permiss
 reset role;
 do $$ begin
   if exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-             where n.nspname = 'public' and has_function_privilege('anon', p.oid, 'execute')) then
+             where n.nspname = 'public' and has_function_privilege('anon', p.oid, 'execute')
+               and p.proname not in ('api_horarios', 'api_resumen', 'api_facturas')) then
     raise exception 'anon puede ejecutar funciones de public';
   end if;
 end $$;

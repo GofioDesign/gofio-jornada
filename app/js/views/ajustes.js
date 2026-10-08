@@ -1,6 +1,6 @@
 import { api, DEMO } from '../api.js';
 import { CONFIG } from '../../config.js';
-import { h, accion, aviso, preferencia, ROLES, puedeGestionar, hoyISO } from '../ui.js';
+import { h, accion, aviso, preferencia, ROLES, puedeGestionar, hoyISO, dialogo, sumarDias } from '../ui.js';
 import { descargar } from '../lib/csv.js';
 import { plantillasObs } from '../lib/factura.js';
 
@@ -12,6 +12,7 @@ export async function vistaAjustes(app, seccion) {
     const [miembros, invitaciones, exportaciones] = await Promise.all([api.miembros(app.org), api.invitaciones(app.org), api.exportaciones(app.org).catch(() => [])]);
     bloques.push(usuarios(app, miembros, invitaciones), plan(app, miembros, exportaciones), empresa(app));
     if (app.facturacion) bloques.push(observaciones(app));
+    if (app.rol === 'propietario') bloques.push(await accesoApi(app));
   }
   const raiz = h('section.pila', h('h1', 'Ajustes'), bloques,
     h('p.ayuda.pie', `Gofio Jornada ${CONFIG.VERSION}${DEMO ? ' · modo demo' : ''} · ${CONFIG.SOPORTE_EMAIL}`));
@@ -217,4 +218,42 @@ function observaciones(app) {
       h('button.btn', { type: 'button', onclick: () => { const c = fila(); filas.append(c); c.querySelector('input').focus(); } }, '+ Añadir'),
       h('button.btn.primario', { type: 'submit' }, 'Guardar')));
   return h('div.tarjeta', { id: 'observaciones' }, h('h2', 'Observaciones recurrentes'), form);
+}
+
+// Claves de API de solo lectura: horarios, registro de jornada y facturas para hojas de cálculo, Zapier o la gestoría
+async function accesoApi(app) {
+  const lista = h('div');
+  const pintar = async () => {
+    const claves = await api.clavesApi(app.org);
+    lista.replaceChildren(claves.length ? h('table.tabla',
+      h('thead', h('tr', h('th', 'Nombre'), h('th', 'Clave'), h('th', 'Creada'), h('th', ''))),
+      h('tbody', claves.map(k => h('tr', h('td', k.nombre), h('td', h('code', k.prefijo + '…')), h('td', new Date(k.creada_en).toLocaleDateString('es-ES')),
+        h('td', k.revocada_en ? h('span.ayuda', 'Revocada') : h('button.btn.mini.peligro', {
+          onclick: ev => accion(ev.currentTarget, async () => {
+            if (!confirm(`¿Revocar la clave «${k.nombre}»? Lo que la use dejará de funcionar.`)) return;
+            await api.revocarClaveApi(k.id); aviso('Clave revocada', 'ok'); await pintar();
+          }) }, 'Revocar'))))))
+      : h('p.ayuda', 'Aún no has creado ninguna clave.'));
+  };
+  const nombre = h('input', { id: 'api-nombre', maxLength: 80, placeholder: 'Para qué es (p. ej. Hoja de horarios)' });
+  const crear = h('button.btn', { type: 'button', onclick: ev => accion(ev.currentTarget, async () => {
+    const clave = await api.crearClaveApi(app.org, nombre.value);
+    nombre.value = ''; await pintar();
+    const hoy = hoyISO(app.tz), desde = sumarDias(hoy, -30);
+    const url = q => `${CONFIG.SUPABASE_URL || 'https://<proyecto>.supabase.co'}/rest/v1/rpc/${q}?clave=${clave}&desde=${desde}&hasta=${hoy}`;
+    const campo = v => h('input', { readOnly: true, value: v, onfocus: e => e.target.select() });
+    await dialogo('Clave de API creada', [
+      h('p', h('strong', 'Cópiala ahora: no se volverá a mostrar.'), ' Quien la tenga puede leer los horarios', app.facturacion ? ' y las facturas' : '', ' de la empresa.'),
+      campo(clave),
+      h('p.ayuda', 'Horarios (un tramo por fila):'), campo(url('api_horarios')),
+      h('p.ayuda', 'Registro de jornada (una fila por persona y día):'), campo(url('api_resumen')),
+      app.facturacion ? [h('p.ayuda', 'Facturas emitidas:'), campo(url('api_facturas'))] : null,
+      h('p.ayuda', 'Cada petición necesita además la cabecera ', h('code', 'apikey'), ' con la clave pública de la app:'), campo(CONFIG.SUPABASE_ANON_KEY || ''),
+      h('p.ayuda', 'Cambia las fechas desde y hasta (AAAA-MM-DD, como máximo un año). Las respuestas son JSON; con la cabecera Accept: text/csv salen en CSV.'),
+    ], [{ texto: 'Copiar clave', valor: async () => { await navigator.clipboard?.writeText(clave).catch(() => { }); aviso('Clave copiada', 'ok'); return undefined; } }, { texto: 'Hecho', valor: true, clase: 'primario' }]);
+  }) }, 'Crear clave');
+  await pintar();
+  return h('div.tarjeta', { id: 'api' }, h('h2', 'Acceso por API'),
+    h('p.ayuda', 'Para que otros programas (Google Sheets, Zapier, tu gestoría) lean los horarios', app.facturacion ? ' y las facturas' : '', ' sin entrar en la app. Las claves solo sirven para leer, nunca para cambiar nada.'),
+    lista, h('div.filtros', nombre, crear));
 }
