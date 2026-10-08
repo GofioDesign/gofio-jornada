@@ -7,6 +7,7 @@ import { vistaProyectos, vistaProyecto } from './views/proyectos.js';
 import { vistaEquipo } from './views/equipo.js';
 import { vistaAjustes } from './views/ajustes.js';
 import { vistaFacturacion } from './views/facturacion.js';
+import { vistaAdmin } from './views/admin.js';
 
 const $vista = document.getElementById('vista');
 const $menu = document.getElementById('menu');
@@ -23,6 +24,7 @@ export const app = {
 
 async function cargarEmpresas() {
   app.empresas = await api.misEmpresas();
+  app.superadmin = await api.esSuperadmin().catch(() => false);
   const guardada = preferencia('org');
   app.org = app.empresas.some(e => e.id === guardada) ? guardada : app.empresas[0]?.id || null;
 }
@@ -44,6 +46,7 @@ function pintarMenu(ruta) {
     puedeVerEquipo(app.rol) && ['#/equipo', 'Equipo', 'equipo'],
     app.facturacion && ['#/facturacion', 'Facturación', 'factura'],
     ['#/ajustes', 'Ajustes', 'ajustes'],
+    app.superadmin && ['#/admin', 'Unidades', 'equipo'],
   ].filter(Boolean);
   $menu.hidden = false;
   montar($menu, items.map(([href, txt, ic]) => h('a', { href, class: (ruta === href || (href !== '#/' && ruta.startsWith(href))) ? 'activo' : '' },
@@ -65,6 +68,7 @@ async function router() {
       case 'proyectos': v = id ? await vistaProyecto(app, id) : await vistaProyectos(app); break;
       case 'equipo': v = puedeVerEquipo(app.rol) ? await vistaEquipo(app) : null; break;
       case 'ajustes': v = await vistaAjustes(app, id); break;
+      case 'admin': v = app.superadmin ? await vistaAdmin(app) : null; break;
       case 'facturacion': v = app.facturacion ? await vistaFacturacion(app, id, sub) : null; break;
       default: v = await vistaJornada(app);
     }
