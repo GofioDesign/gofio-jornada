@@ -41,12 +41,26 @@ export async function vistaBorrador(app, id) {
   agrupacion.value = d.agrupacion || 'DETALLE';
   const producto = h('select', { 'aria-label': 'Producto del catálogo' }, h('option', { value: '' }, 'Añadir producto del catálogo…'),
     opcionesPorFamilia(productos, p => p.descripcion_factura || p.descripcion));
+  const datosProducto = p => ({ producto_id: p.id, codigo: p.codigo, descripcion: p.descripcion_factura || p.descripcion, unidad: p.unidad || 'ud',
+    pvp: Number(p.pvp) || 0, igic: p.igic_pct ?? igicDefecto, coste: Number(p.coste_ud) || 0, familia: p.familia, categoria: categoriaDe(p) });
+  // Artículo de cada línea: se puede cambiar por otro (se conservan cantidad y descuento) o dejar como línea libre
+  const selectArticulo = l => {
+    const s = h('select', { 'aria-label': 'Artículo del catálogo', onchange: ev => {
+      const p = productos.find(x => x.id === ev.target.value);
+      if (p) Object.assign(l, datosProducto(p));
+      else { delete l.producto_id; delete l.codigo; delete l.coste; }
+      pintarLineas();
+    } }, h('option', { value: '' }, 'Línea libre (sin artículo)'), opcionesPorFamilia(productos, p => p.descripcion_factura || p.descripcion));
+    // Artículo que ya no está en el catálogo activo: se muestra igual para no perderlo
+    if (l.producto_id && !productos.some(x => x.id === l.producto_id)) s.add(h('option', { value: l.producto_id }, `${l.codigo || ''} · ${l.descripcion || ''}`), 1);
+    s.value = l.producto_id || '';
+    return s;
+  };
   const anadirProducto = () => {
     const p = productos.find(x => x.id === producto.value);
     if (!p) return;
     if (lineas.length === 1 && !String(lineas[0].descripcion || '').trim() && !Number(lineas[0].pvp)) lineas.splice(0, 1);
-    lineas.push({ producto_id: p.id, codigo: p.codigo, descripcion: p.descripcion_factura || p.descripcion, cantidad: 1, unidad: p.unidad || 'ud',
-      pvp: Number(p.pvp) || 0, dto: 0, igic: p.igic_pct ?? igicDefecto, coste: Number(p.coste_ud) || 0, familia: p.familia, categoria: categoriaDe(p) });
+    lineas.push({ cantidad: 1, dto: 0, ...datosProducto(p) });
     producto.value = ''; pintarLineas();
   };
   producto.addEventListener('change', anadirProducto);
@@ -86,6 +100,7 @@ export async function vistaBorrador(app, id) {
         return h('div.linea-ed',
           campo(l, 'descripcion', 'Descripción', { type: 'text', placeholder: 'Descripción' }),
           h('label.c-categoria', h('span.rotulo', 'Categoría'), selectCategoria(l, () => previa())),
+          h('label.c-articulo', h('span.rotulo', 'Artículo'), selectArticulo(l)),
           campo(l, 'cantidad', 'Cant.', { type: 'number', step: 'any', min: 0 }),
           campo(l, 'unidad', 'Ud.', { type: 'text' }),
           campo(l, 'pvp', 'Precio €', { type: 'number', step: '0.01' }),

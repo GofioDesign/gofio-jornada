@@ -245,8 +245,9 @@ input[type=checkbox], input[type=radio] { width: 20px; min-height: 20px; height:
 .linea-ed.cabecera span { font-size: .75rem; font-weight: 600; color: var(--suave); }
 .linea-ed .importe { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .linea-ed .quitar { padding: 4px; min-height: 0; text-decoration: none; color: var(--suave); }
-.linea-ed:not(.cabecera) { grid-template-areas: "desc cant ud pvp dto igic imp x" "cat . . . . . . ."; }
-.linea-ed .c-categoria select { min-height: 32px; padding: 3px 8px; font-size: .85rem; }
+.linea-ed:not(.cabecera) { grid-template-areas: "desc cant ud pvp dto igic imp x" "cat art art art art art art ."; }
+.linea-ed .c-categoria select, .linea-ed .c-articulo select { min-height: 32px; padding: 3px 8px; font-size: .85rem; }
+.c-articulo { grid-area: art; }
 .c-descripcion { grid-area: desc; } .c-categoria { grid-area: cat; } .c-cantidad { grid-area: cant; } .c-unidad { grid-area: ud; } .c-pvp { grid-area: pvp; }
 .c-dto { grid-area: dto; } .c-igic { grid-area: igic; } .linea-ed .importe { grid-area: imp; } .linea-ed .quitar { grid-area: x; }
 .lineas-editor > .btn { align-self: flex-start; }
@@ -263,7 +264,7 @@ input[type=checkbox], input[type=radio] { width: 20px; min-height: 20px; height:
   .tabla-productos th:nth-child(5), .tabla-productos td:nth-child(5) { width: 22%; }
   .tabla-productos th:nth-child(7), .tabla-productos td:nth-child(7) { width: 18%; }
   .tabla-productos .etiqueta { margin-left: 0; padding: 2px 4px; font-size: .68rem; }
-  .linea-ed, .linea-ed:not(.cabecera) { grid-template-columns: 1fr 1fr 1fr 28px; grid-template-areas: "desc desc desc x" "cat cat cat ." "cant ud pvp ." "dto igic imp ."; padding-bottom: 10px; border-bottom: 1px solid var(--borde); }
+  .linea-ed, .linea-ed:not(.cabecera) { grid-template-columns: 1fr 1fr 1fr 28px; grid-template-areas: "desc desc desc x" "art art art ." "cat cat cat ." "cant ud pvp ." "dto igic imp ."; padding-bottom: 10px; border-bottom: 1px solid var(--borde); }
   .linea-ed.cabecera { display: none; }
   .acciones-lineas { grid-template-columns: 1fr; } .acciones-lineas .btn { justify-self: start; }
   .linea-ed .rotulo { display: block; }
