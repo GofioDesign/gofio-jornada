@@ -50,6 +50,11 @@ const supa = {
   },
   async crearEmpresa(nombre, nif, tuNombre) { const c = await cliente(); return ok(await c.rpc('crear_organizacion', { p_nombre: nombre, p_nif: nif || null, p_nombre_usuario: tuNombre || null })); },
   async misInvitaciones() { const c = await cliente(); return ok(await c.rpc('mis_invitaciones')); },
+  // ---- superadministración (Gofio Design)
+  async esSuperadmin() { const c = await cliente(); return ok(await c.rpc('es_superadmin')); },
+  async saEmpresas() { const c = await cliente(); return ok(await c.rpc('sa_empresas')); },
+  async saCrearEmpresa(x) { const c = await cliente(); return ok(await c.rpc('sa_crear_empresa', { p_nombre: x.nombre, p_email_propietario: x.email, p_nif: x.nif || null, p_plan: x.plan, p_facturacion: !!x.facturacion })); },
+  async saActualizarEmpresa(id, x) { const c = await cliente(); return ok(await c.rpc('sa_actualizar_empresa', { p_org: id, p_plan: x.plan, p_plan_hasta: x.plan_hasta || null, p_facturacion: !!x.facturacion })); },
   async aceptarInvitacion(token, nombre) { const c = await cliente(); return ok(await c.rpc('aceptar_invitacion', { p_token: token, p_nombre: nombre || null })); },
   async guardarEmpresa(org, datos) { const c = await cliente(); return ok(await c.from('organizaciones').update(datos).eq('id', org).select().single()); },
   async planes() { const c = await cliente(); return ok(await c.from('planes').select('*').order('orden')); },
@@ -218,6 +223,30 @@ const demo = {
   async aceptarInvitacion() { },
   async guardarEmpresa(org, datos) { const d = db(); Object.assign(d.orgs.find(o => o.id === org), datos); guardar(d); },
   async planes() { return PLANES; },
+  // En la demo eres superadmin para poder probar el panel
+  async esSuperadmin() { return true; },
+  async saEmpresas() {
+    const d = db();
+    return d.orgs.map(o => ({ id: o.id, nombre: o.nombre, nif: o.nif, plan_id: o.plan_id, plan_hasta: o.plan_hasta || null, tester_facturacion: !!o.tester_facturacion,
+      usa_facturacion: !!o.usa_facturacion, creado_en: o.creado_en || new Date().toISOString(),
+      propietario: d.miembros.find(m => m.org_id === o.id && m.rol === 'propietario') ? (d.miembros.find(m => m.org_id === o.id && m.rol === 'propietario').user_id === 'demo-user' ? d.sesion?.user?.email : 'otro') : null,
+      usuarios: d.miembros.filter(m => m.org_id === o.id && m.activo).length,
+      invitacion_pendiente: d.invitaciones.find(i => i.org_id === o.id && i.rol === 'propietario' && !i.aceptada_en)?.email || null, ultimo_fichaje: null }));
+  },
+  async saCrearEmpresa(x) {
+    if (!String(x.nombre || '').trim()) throw new Error('Escribe el nombre de la unidad');
+    const email = String(x.email || '').trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error('Escribe un email válido para el propietario');
+    const d = db(); const id = uid();
+    d.orgs.push({ id, nombre: x.nombre.trim(), nif: x.nif || '', plan_id: x.plan, tester_facturacion: !!x.facturacion, usa_facturacion: !!x.facturacion, config: { ...d.orgs[0].config }, creado_en: new Date().toISOString() });
+    d.invitaciones.push({ id: uid(), org_id: id, email, rol: 'propietario', token: uid(), creada_en: new Date().toISOString(), aceptada_en: null });
+    guardar(d); return id;
+  },
+  async saActualizarEmpresa(id, x) {
+    const d = db(); const o = d.orgs.find(y => y.id === id);
+    o.usa_facturacion = !x.facturacion ? false : !o.tester_facturacion ? true : o.usa_facturacion;
+    Object.assign(o, { plan_id: x.plan, plan_hasta: x.plan_hasta || null, tester_facturacion: !!x.facturacion }); guardar(d);
+  },
 
   async fichar(org, tipo, o = {}) {
     await espera();
