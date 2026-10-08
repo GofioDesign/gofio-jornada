@@ -40,10 +40,7 @@ export async function vistaBorrador(app, id) {
     Object.entries(AGRUPACIONES).map(([v, t]) => h('option', { value: v }, t)));
   agrupacion.value = d.agrupacion || 'DETALLE';
   const producto = h('select', { 'aria-label': 'Producto del catálogo' }, h('option', { value: '' }, 'Añadir producto del catálogo…'),
-    CATEGORIAS.map(cat => {
-      const ps = productos.filter(p => categoriaDe(p) === cat);
-      return ps.length ? h('optgroup', { label: NOMBRE_CATEGORIA[cat] }, ps.map(p => h('option', { value: p.id }, `${p.codigo} · ${p.descripcion_factura || p.descripcion}`))) : null;
-    }));
+    opcionesPorFamilia(productos, p => p.descripcion_factura || p.descripcion));
   const anadirProducto = () => {
     const p = productos.find(x => x.id === producto.value);
     if (!p) return;
@@ -159,5 +156,12 @@ const selectCategoria = (l, alCambiar) => {
   s.value = categoriaDe(l);
   return s;
 };
+
+// Opciones del catálogo agrupadas por familia, por orden alfabético y de código.
+// (La categoría de factura se asigna sola al añadir la línea.)
+export const opcionesPorFamilia = (productos, texto) =>
+  [...new Set(productos.map(p => p.familia || 'SIN FAMILIA'))].sort((a, b) => a.localeCompare(b, 'es')).map(fam => h('optgroup', { label: fam },
+    productos.filter(p => (p.familia || 'SIN FAMILIA') === fam).sort((a, b) => String(a.codigo).localeCompare(String(b.codigo), 'es', { numeric: true }))
+      .map(p => h('option', { value: p.id }, `${p.codigo} · ${texto(p)}`))));
 
 const fechaCorta = x => x ? new Date(x + 'T12:00:00').toLocaleDateString('es-ES') : '';

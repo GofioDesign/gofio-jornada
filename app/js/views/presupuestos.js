@@ -1,6 +1,7 @@
 import { api } from '../api.js';
 import { h, montar, accion, aviso, eur, fecha, hoyISO } from '../ui.js';
 import { categoriaDe } from '../lib/factura.js';
+import { opcionesPorFamilia } from './borrador.js';
 
 export async function vistaPresupuestos(app) {
   const [presupuestos, clientes] = await Promise.all([api.presupuestos(app.org), api.clientes(app.org)]);
@@ -31,7 +32,7 @@ export async function vistaPresupuesto(app, id) {
   const historial = h('div');
   const producto = h('select', { 'aria-label': 'Producto del catálogo' },
     h('option', { value: '' }, 'Selecciona un producto…'),
-    productos.map(p => h('option', { value: p.id }, `${p.codigo} · ${p.descripcion}`)));
+    opcionesPorFamilia(productos, p => p.descripcion));
   const validas = () => lineas.filter(l => String(l.descripcion || '').trim());
   const total = () => validas().reduce((s, l) => s + (Number(l.cantidad) || 0) * (Number(l.pvp) || 0), 0);
 

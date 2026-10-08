@@ -33,13 +33,26 @@ export async function vistaProductos(app) {
   const mostrarInactivos = h('input', { type: 'checkbox', checked: preferencia('prod-inactivos') === '1' });
   const filtroInactivos = h('label.check.filtro-check', mostrarInactivos, ' Mostrar inactivos');
   const contenido = h('div');
+  // Orden: se pulsa la cabecera de una columna; pulsar otra vez invierte el sentido
+  const COLUMNAS = { codigo: 'Código', descripcion: 'Descripción', familia: 'Familia', coste_ud: 'Coste', pvp: 'PVP' };
+  let [orden, sentido] = (preferencia('prod-orden') || 'familia:1').split(':');
+  if (!COLUMNAS[orden]) orden = 'familia';
+  sentido = Number(sentido) === -1 ? -1 : 1;
+  const comparar = (a, b) => {
+    const num = orden === 'coste_ud' || orden === 'pvp';
+    const r = num ? (Number(a[orden]) || 0) - (Number(b[orden]) || 0) : String(a[orden] || '').localeCompare(String(b[orden] || ''), 'es', { numeric: true });
+    return r * sentido || String(a.codigo).localeCompare(String(b.codigo), 'es', { numeric: true });
+  };
+  const cabecera = (k, num) => h(num ? 'th.num' : 'th', { 'aria-sort': orden === k ? (sentido === 1 ? 'ascending' : 'descending') : null },
+    h('button.orden', { type: 'button', onclick: () => { sentido = orden === k ? -sentido : 1; orden = k; preferencia('prod-orden', `${orden}:${sentido}`); pintar(); } },
+      COLUMNAS[k], h('span', { 'aria-hidden': 'true' }, orden === k ? (sentido === 1 ? ' ▲' : ' ▼') : '')));
   const pintar = () => {
     preferencia('prod-q', buscar.value); preferencia('prod-familia', familia.value); preferencia('prod-inactivos', mostrarInactivos.checked ? '1' : '');
     const q = buscar.value.trim().toLowerCase();
     const filas = productos.filter(p => (!q || `${p.codigo} ${p.descripcion} ${p.descripcion_factura || ''}`.toLowerCase().includes(q))
-      && (!familia.value || p.familia === familia.value) && (mostrarInactivos.checked || p.activo !== false));
+      && (!familia.value || p.familia === familia.value) && (mostrarInactivos.checked || p.activo !== false)).sort(comparar);
     contenido.replaceChildren(filas.length ? h('table.tabla.tabla-productos',
-      h('thead', h('tr', h('th', 'Código'), h('th', 'Descripción'), h('th', 'Familia'), h('th.num', 'Coste'), h('th.num', 'PVP'), h('th', 'Mejor proveedor'), h('th', 'Estado'))),
+      h('thead', h('tr', cabecera('codigo'), cabecera('descripcion'), cabecera('familia'), cabecera('coste_ud', true), cabecera('pvp', true), h('th', 'Mejor proveedor'), h('th', 'Estado'))),
       h('tbody', filas.map(p => h('tr.enlace', { role: 'button', tabIndex: 0, onclick: () => editarProducto(app, p, proveedores, productos), onkeydown: e => { if (e.key === 'Enter') editarProducto(app, p, proveedores, productos); } }, h('td', h('strong', p.codigo)), h('td', p.descripcion), h('td', p.familia),
         h('td.num', eur(p.coste_ud, 4)), h('td.num.precio-producto', eur(p.pvp), indicadorPrecio(p, app.e.config)), h('td', p.mejor_proveedor ? `${p.mejor_proveedor} · ${eur(p.mejor_precio, 4)}` : '—'),
         h('td', h('span.estado-producto', indicadorImpuestos(p), h('span.etiqueta', p.activo ? 'Activo' : 'Inactivo'))))))) : h('p.vacio', 'No hay productos con esos filtros.'));
