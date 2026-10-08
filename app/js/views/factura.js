@@ -1,8 +1,8 @@
 // Detalle de una factura emitida y su PDF (impresión del navegador → «Guardar como PDF»).
 // Idiomas: ES y EN. Los datos de emisor y cliente son los congelados al emitir.
 import { api } from '../api.js';
-import { h, montar } from '../ui.js';
-import { porCategoria, resumenPorCategoria, totalPorIgic, conceptoDe, porConcepto } from '../lib/factura.js';
+import { h, montar, accion, aviso, dialogo, hoyISO } from '../ui.js';
+import { porCategoria, resumenPorCategoria, totalPorIgic, conceptoDe, porConcepto, borradorRectificativo, plantillasObs, anadirObs } from '../lib/factura.js';
 
 export const TXT = {
   ES: {
@@ -40,11 +40,52 @@ export async function vistaFactura(app, id) {
   return h('section.pila',
     h('div.no-imprimir.pila',
       h('a.volver', { href: '#/facturacion' }, '← Facturación'),
-      h('div.cab', h('h1', f.num), h('div.acciones', idioma, h('button.btn.primario', { onclick: pdf }, 'Descargar PDF'))),
+      h('div.cab', h('h1', f.num), h('div.acciones', idioma,
+        f.estado !== 'ANULADA' ? h('button.btn', { onclick: () => corregirTextos(app, f) }, 'Corregir textos') : null,
+        !['RECTIFICADA', 'ANULADA'].includes(f.estado) ? h('button.btn', { onclick: ev => accion(ev.currentTarget, () => rectificar(app, f)) }, 'Rectificar') : null,
+        h('button.btn.primario', { onclick: pdf }, 'Descargar PDF'))),
+      f.estado === 'RECTIFICADA' ? h('p.aviso-fijo', 'Esta factura está rectificada por otra: ya no cuenta como pendiente de cobro.') : null,
+      f.textos_corregidos_en ? h('p.ayuda', `Textos corregidos el ${new Date(f.textos_corregidos_en).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' })}.`) : null,
       faltan ? h('p.aviso-fijo', 'Esta factura se emitió sin tus datos fiscales completos (titular, NIF y dirección). ',
-        'Rellénalos en ', h('a', { href: '#/ajustes' }, 'Ajustes'), ': las próximas facturas ya los llevarán. Una factura emitida no se puede cambiar.') : null,
+        'Rellénalos en ', h('a', { href: '#/ajustes' }, 'Ajustes'), ': las próximas facturas ya los llevarán.') : null,
       h('p.ayuda', 'En la ventana de impresión elige «Guardar como PDF».')),
     hoja);
+}
+
+// Corregir textos: descripción y «Agrupar bajo» de cada línea, concepto (TOTAL) y observaciones. Los importes no cambian.
+async function corregirTextos(app, f) {
+  const lineas = [...(f.lineas || [])].sort((a, b) => a.linea - b.linea);
+  const conGrupo = f.agrupacion === 'CONCEPTO';
+  const filas = lineas.map(l => ({ l,
+    desc: h('input', { value: l.descripcion || '', 'aria-label': `Descripción de la línea ${l.linea}`, required: true }),
+    grupo: h('input', { value: l.grupo || '', placeholder: 'Agrupar bajo (vacío: sale con su descripción)', 'aria-label': `Agrupar bajo, línea ${l.linea}`, maxLength: 250 }) }));
+  const concepto = f.agrupacion === 'TOTAL' ? h('input', { id: 'ct-concepto', value: f.concepto || '', maxLength: 250 }) : null;
+  const obs = h('textarea', { id: 'ct-obs', rows: 4, value: f.observaciones || '' });
+  const plantillas = plantillasObs(app.e?.config);
+  const elegirObs = plantillas.length ? h('select', { 'aria-label': 'Añadir observación recurrente',
+    onchange: ev => { const p = plantillas[ev.target.value]; ev.target.value = ''; if (p) obs.value = anadirObs(obs.value, p.texto); } },
+    h('option', { value: '' }, 'Añadir observación recurrente…'), plantillas.map((p, i) => h('option', { value: i }, p.titulo || p.texto.slice(0, 60)))) : null;
+  const form = h('form.formulario.corregir-textos',
+    h('p.ayuda', 'Solo cambian los textos: los importes, la fecha y el número se quedan igual. Si la factura ya la tiene el cliente y cambia algo importante, mejor «Rectificar».'),
+    filas.map(x => h('div.ct-linea', h('span.ct-num', `${x.l.linea}`), x.desc, conGrupo ? x.grupo : null)),
+    concepto ? [h('label', { for: 'ct-concepto' }, 'Concepto (sale en la factura)'), concepto] : null,
+    h('label', { for: 'ct-obs' }, 'Observaciones'), elegirObs, obs);
+  const guardado = await dialogo(`Corregir textos de ${f.num}`, form, [
+    { texto: 'Cancelar', valor: null },
+    { texto: 'Guardar', clase: 'primario', valor: async () => {
+      if (!form.reportValidity()) return undefined;
+      const cambios = filas.filter(x => x.desc.value.trim() !== (x.l.descripcion || '') || (conGrupo && x.grupo.value.trim() !== (x.l.grupo || '')))
+        .map(x => ({ linea: x.l.linea, descripcion: x.desc.value.trim(), grupo: conGrupo ? x.grupo.value.trim() : x.l.grupo || '' }));
+      return (await accion(null, () => api.corregirTextosFactura(f.id, { lineas: cambios, concepto: concepto?.value, observaciones: obs.value }))) || undefined;
+    } }]);
+  if (guardado) { aviso('Textos corregidos', 'ok'); window.dispatchEvent(new HashChangeEvent('hashchange')); }
+}
+
+// Rectificar: copia la factura a un borrador rectificativo y lo abre para corregirlo y emitirlo.
+async function rectificar(app, f) {
+  const datos = borradorRectificativo(f, hoyISO(app.tz));
+  const b = await api.guardarBorrador(app.org, { cliente_id: f.cliente_id || f.cliente?.id || null, datos, total: f.total });
+  location.hash = '#/facturacion/borrador/' + b.id;
 }
 
 // Abre la impresión del navegador; el título es el nombre de archivo que sugiere al «Guardar como PDF».

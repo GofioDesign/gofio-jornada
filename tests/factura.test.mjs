@@ -94,3 +94,16 @@ test('anadirObs: separa con línea en blanco y no repite', async () => {
   assert.equal(anadirObs('Uno\n', 'Dos'), 'Uno\n\nDos');
   assert.equal(anadirObs('Uno\n\nDos', 'Dos'), 'Uno\n\nDos');
 });
+
+test('borradorRectificativo: copia líneas en orden, con precio, grupo y referencia a la original', async () => {
+  const { borradorRectificativo, motivoRectificativa } = await import('../app/js/lib/factura.js');
+  const f = { id: 'f1', num: 'EMIT26-0004', fecha: '2026-10-08', irpf_pct: 0, agrupacion: 'CONCEPTO', observaciones: 'Nota',
+    lineas: [{ linea: 2, descripcion: 'Cable', cantidad: '2', unidad: 'm', pvp_ud: '5.00', dto_pct: '0', igic_pct: '7.00', grupo: 'Materiales', familia: 'MATERIAL ELECTRICO' },
+             { linea: 1, descripcion: 'Desplazamiento', cantidad: '1', pvp_ud: '30.00', dto_pct: '10', igic_pct: '7.00', grupo: null }] };
+  const b = borradorRectificativo(f, '2026-10-09');
+  assert.deepEqual(b.lineas.map(l => [l.descripcion, l.cantidad, l.pvp, l.dto, l.igic, l.grupo]),
+    [['Desplazamiento', 1, 30, 10, 7, ''], ['Cable', 2, 5, 0, 7, 'Materiales']]);
+  assert.equal(b.fecha, '2026-10-09'); assert.equal(b.concepto, null);
+  assert.deepEqual(b.rectifica, { id: 'f1', num: 'EMIT26-0004', fecha: '2026-10-08' });
+  assert.equal(motivoRectificativa(b.rectifica, ' Precio mal '), 'Rectifica la factura EMIT26-0004 de 08/10/2026. Precio mal');
+});

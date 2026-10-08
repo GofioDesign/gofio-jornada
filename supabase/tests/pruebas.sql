@@ -272,6 +272,31 @@ select pg_temp.debe_fallar($$select public.emitir_factura((select org from ctx),
 select pg_temp.debe_fallar($$select public.emitir_factura((select org from ctx), (select id from clientes where codigo = 'B00000000'), '2026-09-24',
   '[{"descripcion":"x","cantidad":1,"pvp":1,"igic":7,"categoria":"VARIOS"}]', 0)$$, 'facturas_lineas_categoria_check');
 
+do $$
+declare f facturas; g facturas; r facturas; h text;
+begin
+  -- 0020: corregir textos de una emitida sin tocar importes ni huella
+  f := public.emitir_factura((select org from ctx), (select id from clientes where codigo = 'B00000000'), '2026-09-24',
+        '[{"descripcion":"Transporte","cantidad":1,"pvp":30,"igic":7},{"descripcion":"Cable","cantidad":2,"pvp":5,"igic":7}]',
+        0, 'Nota', null, null, null, null, null, null, 'CONCEPTO');
+  h := f.huella;
+  g := public.corregir_textos_factura(f.id, '[{"linea":1,"descripcion":" Desplazamiento al domicilio "},{"linea":2,"descripcion":"Cable","grupo":"Materiales"}]',
+        null, '  Garantía 6 meses  ');
+  if g.huella <> h or g.total <> f.total or g.observaciones <> 'Garantía 6 meses' or g.textos_corregidos_en is null then raise exception 'corregir textos: factura'; end if;
+  if (select string_agg(descripcion || '/' || coalesce(grupo, '-'), ',' order by linea) from facturas_lineas where factura_id = f.id)
+     <> 'Desplazamiento al domicilio/-,Cable/Materiales' then raise exception 'corregir textos: líneas'; end if;
+  if (select textos_corregidos_en from v_facturas where id = f.id) is null then raise exception 'v_facturas sin textos_corregidos_en'; end if;
+  begin perform public.corregir_textos_factura(f.id, '[{"linea":9,"descripcion":"x"}]'); raise exception 'línea inexistente aceptada';
+  exception when others then if sqlerrm not like '%no existe%' then raise; end if; end;
+  begin perform public.corregir_textos_factura(f.id, '[{"linea":1,"descripcion":"  "}]'); raise exception 'descripción vacía aceptada';
+  exception when others then if sqlerrm not like '%descripción%' then raise; end if; end;
+  -- rectificativa: nueva serie RECT y la original queda RECTIFICADA
+  r := public.emitir_factura((select org from ctx), (select id from clientes where codigo = 'B00000000'), '2026-09-24',
+        '[{"descripcion":"Desplazamiento al domicilio","cantidad":1,"pvp":25,"igic":7}]', 0, null, null, null, null, f.id, 'Precio del desplazamiento');
+  if r.tipo_doc <> 'RECTIFICATIVA' or r.num not like 'RECT26-%' or r.rectifica_a <> f.id then raise exception 'rectificativa: %', r.num; end if;
+  if (select estado_cobro from v_facturas where id = f.id) <> 'RECTIFICADA' then raise exception 'original no queda rectificada'; end if;
+end $$;
+select pg_temp.debe_fallar($$update facturas set concepto = 'x'$$, 'rectificativa');
 select pg_temp.debe_fallar($$update facturas set total = 1$$, 'rectificativa');
 do $$ declare n int; begin delete from facturas; get diagnostics n = row_count; if n <> 0 then raise exception 'delete facturas'; end if; end $$;
 do $$ begin
