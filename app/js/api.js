@@ -61,17 +61,19 @@ const supa = {
   },
   async fichajes(org, { desde, hasta, user } = {}) {
     const c = await cliente();
-    let q = c.from('fichajes').select('*').eq('org_id', org).order('momento');
+    // Con su anulación, si la tiene (relación 1 a 1 con fichajes_anulados)
+    let q = c.from('fichajes').select('*, fichajes_anulados(motivo, anulado_en)').eq('org_id', org).order('momento');
     // margen de ±1 día para cubrir la zona horaria; la vista agrupa por día local
     if (desde) q = q.gte('momento', new Date(Date.parse(desde + 'T00:00:00Z') - 864e5).toISOString());
     if (hasta) q = q.lte('momento', new Date(Date.parse(hasta + 'T23:59:59Z') + 864e5).toISOString());
     if (user) q = q.eq('user_id', user);
-    return ok(await q);
+    return ok(await q).map(({ fichajes_anulados: a, ...f }) => ({ ...f, anulado: (Array.isArray(a) ? a[0] : a) || null }));
   },
   async resumen(org, desde, hasta, user) { const c = await cliente(); return ok(await c.rpc('resumen_jornada', { p_org: org, p_desde: desde, p_hasta: hasta, p_user: user || null })); },
   async tramos(org, desde, hasta, user) { const c = await cliente(); return ok(await c.rpc('tramos_jornada', { p_org: org, p_desde: desde, p_hasta: hasta, p_user: user || null })); },
   async solicitarCorreccion(org, tipo, momento, motivo) { const c = await cliente(); return ok(await c.rpc('solicitar_correccion', { p_org: org, p_tipo: tipo, p_momento: momento, p_motivo: motivo })); },
   async asignarCliente(org, momento, cliente_id, proyecto_id, user) { const c = await cliente(); return ok(await c.rpc('asignar_cliente', { p_org: org, p_momento: momento, p_cliente: cliente_id || null, p_proyecto: proyecto_id || null, p_user: user || null })); },
+  async anularFichajes(org, ids, motivo) { const c = await cliente(); return ok(await c.rpc('anular_fichajes', { p_org: org, p_ids: ids, p_motivo: motivo })); },
   async correccionesPendientes(org) { const c = await cliente(); return ok(await c.from('fichajes').select('*').eq('org_id', org).eq('estado', 'PENDIENTE').order('momento')); },
   async revisarCorreccion(id, aprobar) { const c = await cliente(); return ok(await c.rpc('revisar_correccion', { p_id: id, p_aprobar: aprobar })); },
 
@@ -244,10 +246,15 @@ const demo = {
   async solicitarCorreccion(org, tipo, momento, motivo) {
     const d = db(); d.fichajes.push({ id: uid(), org_id: org, user_id: 'demo-user', tipo, momento: new Date().toISOString(), momento_declarado: momento, motivo, origen: 'CORRECCION', estado: 'PENDIENTE' }); guardar(d);
   },
-  async asignarCliente(org, momento, cliente_id, proyecto_id) {
+  async asignarCliente(org, momento, cliente_id, proyecto_id, user) {
     const d = db(); cliente_id = proyectoCliente(d, proyecto_id, cliente_id);
-    const f = { id: uid(), org_id: org, user_id: 'demo-user', tipo: 'CAMBIO_CLIENTE', cliente_id, proyecto_id: proyecto_id || null, momento: new Date().toISOString(), momento_declarado: momento, motivo: 'Cliente asignado a posteriori', origen: 'RESPONSABLE', estado: 'APROBADA' };
+    const f = { id: uid(), org_id: org, user_id: user || 'demo-user', tipo: 'CAMBIO_CLIENTE', cliente_id, proyecto_id: proyecto_id || null, momento: new Date().toISOString(), momento_declarado: momento, motivo: 'Cliente asignado a posteriori', origen: 'RESPONSABLE', estado: 'APROBADA' };
     d.fichajes.push(f); guardar(d); return f;
+  },
+  async anularFichajes(org, ids, motivo) {
+    const d = db(); let n = 0;
+    d.fichajes.filter(f => f.org_id === org && ids.includes(f.id) && !f.anulado).forEach(f => { f.anulado = { motivo, anulado_en: new Date().toISOString() }; n++; });
+    guardar(d); return n;
   },
   async correccionesPendientes(org) { return db().fichajes.filter(f => f.org_id === org && f.estado === 'PENDIENTE'); },
   async revisarCorreccion(id, aprobar) { const d = db(); const f = d.fichajes.find(x => x.id === id); f.estado = aprobar ? 'APROBADA' : 'RECHAZADA'; guardar(d); },
