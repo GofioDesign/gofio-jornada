@@ -1,8 +1,8 @@
 // Borrador de factura: editor de líneas con vista previa del documento. Nada es definitivo
 // hasta «Emitir factura»: entonces el servidor numera, calcula, congela los datos y encadena la huella.
 import { api } from '../api.js';
-import { h, montar, accion, aviso, eur, hoyISO, sumarDias } from '../ui.js';
-import { calcular, irpfCliente, emisorDe, categoriaDe, CATEGORIAS, AGRUPACIONES, NOMBRE_CATEGORIA } from '../lib/factura.js';
+import { h, montar, accion, aviso, eur, hoyISO, sumarDias, puedeGestionar } from '../ui.js';
+import { calcular, irpfCliente, emisorDe, categoriaDe, CATEGORIAS, AGRUPACIONES, NOMBRE_CATEGORIA, plantillasObs, anadirObs } from '../lib/factura.js';
 import { documento, imprimir, TXT } from './factura.js';
 
 export async function vistaBorrador(app, id) {
@@ -30,6 +30,11 @@ export async function vistaBorrador(app, id) {
   const pHasta = h('input', { id: 'b-hasta', type: 'date', value: d.hasta || '', onchange: () => previa() });
   const quitarPeriodo = h('button.btn.enlace', { type: 'button', onclick: () => { pDesde.value = ''; pHasta.value = ''; previa(); } }, 'Quitar periodo');
   const obs = h('textarea', { id: 'b-obs', rows: 3, value: d.observaciones || '', oninput: () => previa() });
+  const plantillas = plantillasObs(app.e.config);
+  const elegirObs = h('select', { id: 'b-obs-plantilla', 'aria-label': 'Añadir observación recurrente',
+    onchange: () => { const p = plantillas[elegirObs.value]; elegirObs.value = ''; if (p) { obs.value = anadirObs(obs.value, p.texto); previa(); } } },
+    h('option', { value: '' }, plantillas.length ? 'Añadir observación recurrente…' : 'No hay observaciones recurrentes'),
+    plantillas.map((p, i) => h('option', { value: i }, p.titulo || p.texto.slice(0, 60))));
   const idioma = h('select', { 'aria-label': 'Idioma del PDF', onchange: () => previa() }, h('option', { value: 'ES' }, 'Español'), h('option', { value: 'EN' }, 'English'));
   idioma.value = cli()?.idioma === 'EN' ? 'EN' : 'ES';
   const concepto = h('input', { id: 'b-concepto', type: 'text', maxLength: 250, value: d.concepto || '', oninput: () => previa(),
@@ -173,7 +178,9 @@ export async function vistaBorrador(app, id) {
         h('div.dos', h('div', h('label', { for: 'b-irpf' }, 'Retención IRPF (%)'), irpf),
           h('div', h('label', { for: 'b-agrupacion' }, 'Cómo salen las líneas en la factura'), agrupacion)),
         cajaConcepto,
-        h('label', { for: 'b-obs' }, 'Observaciones (salen en la factura)'), obs,
+        h('label', { for: 'b-obs' }, 'Observaciones (salen en la factura)'),
+        h('div.obs-plantillas', elegirObs, puedeGestionar(app.rol) ? h('a.btn.enlace', { href: '#/ajustes/observaciones' }, 'Gestionar') : null),
+        obs,
         h('div.acciones',
           h('button.btn', { onclick: ev => accion(ev.currentTarget, async () => { await guardar(); aviso('Borrador guardado', 'ok'); }) }, 'Guardar borrador'),
           h('button.btn.primario', { onclick: ev => accion(ev.currentTarget, emitir) }, 'Emitir factura'),

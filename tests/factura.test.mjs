@@ -80,3 +80,17 @@ test('porConcepto: suma las líneas con el mismo grupo e IGIC y deja sueltas las
   assert.deepEqual(porConcepto(ls).map(r => [r.concepto, r.igic_pct, r.base]),
     [['Desplazamiento', 7, 50], ['Plus urgencia', 7, 20], ['Materiales', 7, 0.3], ['Materiales', 0, 5]]);
 });
+
+test('plantillasObs: iniciales si no hay, las guardadas si las hay (aunque sea lista vacía)', async () => {
+  const { plantillasObs, OBSERVACIONES_INICIALES } = await import('../app/js/lib/factura.js');
+  assert.equal(plantillasObs({}).length, OBSERVACIONES_INICIALES.length);
+  assert.deepEqual(plantillasObs({ observaciones_plantillas: [] }), []);
+  assert.deepEqual(plantillasObs({ observaciones_plantillas: [{ titulo: 'A', texto: 'x' }, { titulo: 'vacía', texto: ' ' }] }), [{ titulo: 'A', texto: 'x' }]);
+});
+
+test('anadirObs: separa con línea en blanco y no repite', async () => {
+  const { anadirObs } = await import('../app/js/lib/factura.js');
+  assert.equal(anadirObs('', 'Hola'), 'Hola');
+  assert.equal(anadirObs('Uno\n', 'Dos'), 'Uno\n\nDos');
+  assert.equal(anadirObs('Uno\n\nDos', 'Dos'), 'Uno\n\nDos');
+});

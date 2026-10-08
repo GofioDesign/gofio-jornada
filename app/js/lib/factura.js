@@ -91,3 +91,18 @@ export function resumenPorCategoria(lineas = []) {
     .map(igic_pct => ({ categoria: g.categoria, igic_pct,
       base: g.lineas.filter(l => (Number(l.igic_pct) || 0) === igic_pct).reduce((s, l) => s + Math.round((Number(l.base) || 0) * 100), 0) / 100 })));
 }
+
+// Observaciones recurrentes (como las firmas del correo): se guardan en organizaciones.config.observaciones_plantillas
+// como [{ titulo, texto }]. Mientras la empresa no guarde las suyas, se ofrecen estas.
+export const OBSERVACIONES_INICIALES = [
+  { titulo: 'Reparación parcial', texto: 'Reparación parcial de instalación preexistente. La intervención comprende los materiales suministrados y los trabajos detallados en esta factura. La cobertura se limita a los defectos atribuibles a dichos materiales o a su instalación, conforme a las condiciones pactadas y la normativa aplicable. No supone una renovación integral ni cubre averías independientes de los elementos antiguos no intervenidos.' },
+  { titulo: 'Garantía 6 meses', texto: 'Garantía contractual de seis meses desde la finalización de los trabajos, sobre los cables, conectores y fijaciones suministrados y su correcta instalación. Cubre defectos atribuibles a los materiales o a la ejecución realizada. No cubre averías independientes de los elementos preexistentes no intervenidos, ni daños causados por uso indebido o actuaciones posteriores de terceros. Todo ello sin perjuicio de las responsabilidades legales aplicables.' },
+];
+export const plantillasObs = (config = {}) =>
+  (Array.isArray(config?.observaciones_plantillas) ? config.observaciones_plantillas : OBSERVACIONES_INICIALES).filter(p => p?.texto?.trim());
+// Añade un texto a las observaciones con una línea en blanco de separación; si ya está, no lo repite.
+export function anadirObs(actual = '', texto = '') {
+  const a = (actual || '').trimEnd(); const t = (texto || '').trim();
+  if (!t || a.includes(t)) return a;
+  return a ? `${a}\n\n${t}` : t;
+}
