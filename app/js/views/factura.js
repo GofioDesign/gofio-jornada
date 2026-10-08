@@ -2,7 +2,7 @@
 // Idiomas: ES y EN. Los datos de emisor y cliente son los congelados al emitir.
 import { api } from '../api.js';
 import { h, montar } from '../ui.js';
-import { porCategoria, resumenPorCategoria, totalPorIgic, conceptoDe } from '../lib/factura.js';
+import { porCategoria, resumenPorCategoria, totalPorIgic, conceptoDe, porConcepto } from '../lib/factura.js';
 
 export const TXT = {
   ES: {
@@ -113,9 +113,10 @@ function lineasDoc(f, lineas, t, { eur, num, pct, conDto }) {
     h('thead', h('tr', h('th', t.desc), h('th.n', t.igic), h('th.n', t.importe))),
     h('tbody', filas.map(([desc, igic, base]) => h('tr', h('td', desc), h('td.n', pct(igic)), h('td.n', eur(base))))));
   if (f.agrupacion === 'RESUMEN') return sinPrecio(resumenPorCategoria(lineas).map(r => [t.cat[r.categoria], r.igic_pct, r.base]));
-  if (f.agrupacion === 'CONCEPTO') return sinPrecio(lineas.map(l => [l.descripcion, l.igic_pct, l.base]));
+  if (f.agrupacion === 'CONCEPTO') return sinPrecio(porConcepto(lineas).map(r => [r.concepto, r.igic_pct, r.base]));
   if (f.agrupacion === 'TOTAL') {
-    const concepto = conceptoDe(f.concepto, lineas);
+    // En el borrador, sin concepto escrito se avisa en vez de juntar todas las descripciones
+    const concepto = f.borrador && !String(f.concepto || '').trim() ? '(escribe el concepto en el borrador)' : conceptoDe(f.concepto, lineas);
     return sinPrecio(totalPorIgic(lineas).map(r => [concepto, r.igic_pct, r.base]));
   }
   const cabecera = h('thead', h('tr', h('th', t.desc), h('th.n', t.cant), h('th.n', t.precio), conDto ? h('th.n', t.dto) : null, h('th.n', t.igic), h('th.n', t.importe)));

@@ -35,7 +35,7 @@ export async function vistaBorrador(app, id) {
   const concepto = h('input', { id: 'b-concepto', type: 'text', maxLength: 250, value: d.concepto || '', oninput: () => previa(),
     placeholder: 'Ej.: Servicios de diseño, septiembre 2026' });
   const cajaConcepto = h('div', h('label', { for: 'b-concepto' }, 'Concepto que sale en la factura'), concepto,
-    h('p.ayuda', 'Si lo dejas vacío, se juntan las descripciones de las líneas. El importe es la suma de todas.'));
+    h('p.ayuda', 'Sale en una sola fila con la suma de todas las líneas.'));
   const agrupacion = h('select', { id: 'b-agrupacion', onchange: () => previa() },
     Object.entries(AGRUPACIONES).map(([v, t]) => h('option', { value: v }, t)));
   agrupacion.value = d.agrupacion || 'DETALLE';
@@ -66,6 +66,7 @@ export async function vistaBorrador(app, id) {
   producto.addEventListener('change', anadirProducto);
   const diasHoras = (d.horas || []).map(x => x.dia).filter(Boolean).sort();
   const editor = h('div.lineas-editor');
+  const grupos = h('datalist', { id: 'grupos-factura' });
   const hoja = h('article.doc-factura');
 
   const validas = () => lineas.filter(l => String(l.descripcion || '').trim() || Number(l.pvp));
@@ -76,6 +77,8 @@ export async function vistaBorrador(app, id) {
   const importes = [];
   const previa = () => {
     cajaConcepto.hidden = agrupacion.value !== 'TOTAL';
+    editor.classList.toggle('con-grupos', agrupacion.value === 'CONCEPTO');
+    grupos.replaceChildren(...[...new Set(lineas.map(l => String(l.grupo || '').trim()).filter(Boolean))].map(g => h('option', { value: g })));
     quitarPeriodo.style.display = pDesde.value || pHasta.value ? '' : 'none';
     const t = calcular(validas(), irpf.value);
     const porLinea = calcular(lineas, 0).lineas;
@@ -83,7 +86,7 @@ export async function vistaBorrador(app, id) {
     const f = { borrador: true, fecha: fecha.value, vencimiento: fecha.value && sumarDias(fecha.value, Number(cfg.dias_vencimiento ?? 30)),
       periodo_desde: pDesde.value || null, periodo_hasta: pHasta.value || pDesde.value || null, cliente: cli() || {}, emisor: emisorDe(app.e, t.igic_desglose),
       agrupacion: agrupacion.value, concepto: concepto.value,
-      lineas: t.lineas.map(l => ({ descripcion: l.descripcion, cantidad: l.cantidad, unidad: l.unidad, pvp_ud: l.pvp, dto_pct: l.dto, igic_pct: l.igic, base: l.base, categoria: l.categoria })),
+      lineas: t.lineas.map(l => ({ descripcion: l.descripcion, cantidad: l.cantidad, unidad: l.unidad, pvp_ud: l.pvp, dto_pct: l.dto, igic_pct: l.igic, base: l.base, categoria: l.categoria, grupo: l.grupo })),
       base: t.base, igic: t.igic, igic_desglose: t.igic_desglose, irpf_pct: Number(irpf.value) || 0, irpf: t.irpf, total: t.total, observaciones: obs.value.trim() };
     montar(hoja, ...documento(f, TXT[idioma.value], app.e.logo_url));
   };
@@ -101,6 +104,7 @@ export async function vistaBorrador(app, id) {
           campo(l, 'descripcion', 'Descripción', { type: 'text', placeholder: 'Descripción' }),
           h('label.c-categoria', h('span.rotulo', 'Categoría'), selectCategoria(l, () => previa())),
           h('label.c-articulo', h('span.rotulo', 'Artículo'), selectArticulo(l)),
+          campo(l, 'grupo', 'Agrupar bajo', { type: 'text', list: 'grupos-factura', maxLength: 250, placeholder: 'Vacío: sale con su descripción' }),
           campo(l, 'cantidad', 'Cant.', { type: 'number', step: 'any', min: 0 }),
           campo(l, 'unidad', 'Ud.', { type: 'text' }),
           campo(l, 'pvp', 'Precio €', { type: 'number', step: '0.01' }),
@@ -110,6 +114,7 @@ export async function vistaBorrador(app, id) {
           h('button.btn.enlace.quitar', { type: 'button', 'aria-label': `Quitar línea ${i + 1}`, title: 'Quitar línea',
             onclick: () => { lineas.splice(i, 1); if (!lineas.length) lineas.push(lineaVacia()); pintarLineas(); } }, '✕'));
       }),
+      grupos,
       h('div.acciones-lineas', producto,
         h('button.btn', { type: 'button', onclick: () => { lineas.push(lineaVacia()); pintarLineas(); [...editor.querySelectorAll('.linea-ed input')].at(-6)?.focus(); } }, '+ Línea libre')));
     previa();
@@ -125,6 +130,7 @@ export async function vistaBorrador(app, id) {
     if (!c) throw new Error('Elige el cliente.');
     if (!x.lineas.length) throw new Error('La factura no tiene líneas.');
     if (x.lineas.some(l => !String(l.descripcion || '').trim())) throw new Error('Todas las líneas necesitan una descripción.');
+    if (x.agrupacion === 'TOTAL' && !x.concepto) throw new Error('Escribe el concepto que sale en la factura.');
     const total = calcular(x.lineas, x.irpf_pct).total;
     if (!confirm(`¿Emitir la factura a ${c.nombre} por ${eur(total)}?\n\nUna factura emitida no se puede borrar ni modificar.`)) return;
     await guardar();   // si falla la emisión, el borrador queda guardado tal cual

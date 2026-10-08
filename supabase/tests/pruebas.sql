@@ -260,6 +260,12 @@ begin
   f := public.emitir_factura((select org from ctx), (select id from clientes where codigo = 'B00000000'), '2026-09-24',
         '[{"descripcion":"Diseño","cantidad":2,"pvp":30,"igic":7}]', 0, null, null, null, null, null, null, null, 'CONCEPTO');
   if f.agrupacion <> 'CONCEPTO' or f.concepto <> 'Diseño' then raise exception 'CONCEPTO: % %', f.agrupacion, f.concepto; end if;
+  -- 0019: grupo de cada línea
+  f := public.emitir_factura((select org from ctx), (select id from clientes where codigo = 'B00000000'), '2026-09-24',
+        '[{"descripcion":"A","cantidad":1,"pvp":10,"igic":7,"grupo":"  Material  "},{"descripcion":"B","cantidad":1,"pvp":5,"igic":7,"grupo":""}]',
+        0, null, null, null, null, null, null, null, 'CONCEPTO');
+  if (select string_agg(coalesce(grupo, '-'), ',' order by linea) from facturas_lineas where factura_id = f.id) <> 'Material,-'
+    or f.base <> 15 then raise exception 'grupo de línea'; end if;
 end $$;
 select pg_temp.debe_fallar($$select public.emitir_factura((select org from ctx), (select id from clientes where codigo = 'B00000000'), '2026-09-24',
   '[{"descripcion":"x","cantidad":1,"pvp":1,"igic":7}]', 0, null, null, null, null, null, null, null, 'OTRA')$$, 'facturas_agrupacion_check');

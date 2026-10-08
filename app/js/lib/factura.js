@@ -37,7 +37,7 @@ export const CATEGORIAS = ['MANO DE OBRA', 'MATERIALES', 'PEQUEÑO MATERIAL', 'T
 export const NOMBRE_CATEGORIA = { 'MANO DE OBRA': 'Mano de obra', MATERIALES: 'Materiales', 'PEQUEÑO MATERIAL': 'Pequeño material', TRANSPORTE: 'Transporte', OTROS: 'Otros' };
 export const AGRUPACIONES = {
   DETALLE: 'Línea a línea (cantidad × precio)', CATEGORIAS: 'Agrupadas por categoría', RESUMEN: 'Un importe por categoría',
-  CONCEPTO: 'Cada concepto con su importe (sin precio por unidad)', TOTAL: 'Un solo concepto con el total',
+  CONCEPTO: 'Conceptos con su importe (agrupables)', TOTAL: 'Un solo concepto con el total',
 };
 
 // Igual que public.categoria_de_familia.
@@ -64,6 +64,21 @@ export function totalPorIgic(lineas = []) {
   const m = new Map();
   lineas.forEach(l => { const k = Number(l.igic_pct) || 0; m.set(k, (m.get(k) || 0) + Math.round((Number(l.base) || 0) * 100)); });
   return [...m].sort((a, b) => a[0] - b[0]).map(([igic_pct, c]) => ({ igic_pct, base: c / 100 }));
+}
+
+// Filas de la presentación CONCEPTO: las líneas con el mismo «grupo» se suman en una fila con ese
+// texto (una por tipo de IGIC); las que no tienen grupo salen con su descripción. Orden de aparición.
+export function porConcepto(lineas = []) {
+  const filas = new Map();
+  lineas.forEach((l, i) => {
+    const grupo = String(l.grupo || '').trim();
+    const igic_pct = Number(l.igic_pct) || 0;
+    const clave = grupo ? `g|${grupo}|${igic_pct}` : `l|${i}`;
+    const f = filas.get(clave) || { concepto: grupo || l.descripcion, igic_pct, c: 0 };
+    f.c += Math.round((Number(l.base) || 0) * 100);
+    filas.set(clave, f);
+  });
+  return [...filas.values()].map(({ c, ...f }) => ({ ...f, base: c / 100 }));
 }
 
 // Texto del concepto único: el escrito, o las descripciones juntas como hace emitir_factura (0018).
