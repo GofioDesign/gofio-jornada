@@ -2,6 +2,9 @@ import { api } from '../api.js';
 import { h, accion, aviso, dialogo, hora, fecha, hoyISO, sumarDias, posicion, preferencia } from '../ui.js';
 import { estadoActual, accionesPosibles, tramos, totales, fmtMin, fmtReloj, diaLocal, TIPOS } from '../lib/jornada.js';
 import { navegarUrl, tieneDestino, direccionCompleta } from '../lib/mapas.js';
+import { editar as editarCliente } from './clientes.js';
+
+const puedeCrearClientes = rol => ['propietario', 'admin', 'responsable'].includes(rol);
 
 // GPS: se reutiliza una posición reciente para que fichar sea instantáneo
 let ultimaPos = null, vigilando = false;
@@ -49,7 +52,7 @@ export async function vistaJornada(app) {
     h('div.estado-cab', h('span.punto'), h('strong', etiquetas[st.estado]), st.desde ? h('span.ayuda', ' desde ' + hora(st.desde, app.tz)) : null),
     relojEl,
     h('div.ayuda', 'trabajado hoy'),
-    st.estado !== 'FUERA' && st.cliente_id && !st.desplazamiento ? h('div.cliente-actual', 'Cliente: ', h('strong', cli(st.cliente_id)?.nombre || '—')) : null,
+    st.estado !== 'FUERA' && !st.desplazamiento ? h('div.cliente-actual', 'Cliente: ', st.cliente_id ? h('strong', cli(st.cliente_id)?.nombre || '—') : h('span.ayuda', 'sin asignar')) : null,
     st.desplazamiento ? h('div.desplazamiento',
       h('div', '🚗 De camino a ', h('strong', destinoActual?.nombre || 'destino sin indicar'), h('span.ayuda', ' · desde ' + hora(st.desplazamiento.desde, app.tz))),
       destinoActual && tieneDestino(destinoActual) ? h('div.fila-botones',
@@ -90,9 +93,10 @@ export async function vistaJornada(app) {
 }
 
 function botonFichar(app, tipo, clientes, st) {
+  const sinCliente = !st.cliente_id;
   const textos = {
     ENTRADA: ['Iniciar jornada', 'primario'], PAUSA: ['Pausa', ''], REANUDAR: ['Reanudar', 'primario'], SALIDA: ['Finalizar jornada', 'peligro'],
-    DESPLAZAMIENTO_INICIO: ['🚗 Salir hacia un cliente', ''], DESPLAZAMIENTO_FIN: ['📍 He llegado', 'primario'], CAMBIO_CLIENTE: ['Cambiar de cliente', 'enlace'],
+    DESPLAZAMIENTO_INICIO: ['🚗 Salir hacia un cliente', ''], DESPLAZAMIENTO_FIN: ['📍 He llegado', 'primario'], CAMBIO_CLIENTE: sinCliente ? ['Elegir cliente', 'primario'] : ['Cambiar de cliente', 'enlace'],
   };
   const [txt, clase] = textos[tipo];
   return h('button.btn' + (clase ? '.' + clase : ''), {
@@ -101,7 +105,7 @@ function botonFichar(app, tipo, clientes, st) {
       const btn = e.currentTarget;
       let cliente_id = null;
       if (tipo === 'ENTRADA' || tipo === 'CAMBIO_CLIENTE' || tipo === 'DESPLAZAMIENTO_INICIO') {
-        const r = await elegirCliente(clientes, tipo);
+        const r = await elegirCliente(app, clientes, tipo);
         if (r === null) return;
         cliente_id = r.cliente_id;
         if (tipo === 'CAMBIO_CLIENTE' && !cliente_id) return aviso('Elige un cliente', 'error');
@@ -119,7 +123,7 @@ function botonFichar(app, tipo, clientes, st) {
 }
 
 /** Selector de cliente con búsqueda. Devuelve {cliente_id} o null si se cancela. */
-async function elegirCliente(clientes, tipo) {
+async function elegirCliente(app, clientes, tipo) {
   const buscar = h('input', { type: 'search', placeholder: 'Buscar cliente…', 'aria-label': 'Buscar cliente' });
   let elegido = null;
   const navPref = preferencia('nav') || 'waze';
@@ -128,18 +132,30 @@ async function elegirCliente(clientes, tipo) {
     h('option', { value: 'maps', selected: navPref === 'maps' }, 'y abrir Google Maps'),
     h('option', { value: 'no', selected: navPref === 'no' }, 'sin abrir navegación'));
   const lista = h('div.lista-clientes');
+  const puedeCrear = puedeCrearClientes(app.rol);
   const pintar = () => {
     const q = buscar.value.toLowerCase();
-    lista.replaceChildren(...clientes.filter(c => c.activo !== false && (c.nombre + ' ' + (c.localidad || '') + ' ' + (c.municipio || '')).toLowerCase().includes(q)).slice(0, 50)
-      .map(c => h('label.opcion', h('input', { type: 'radio', name: 'cli', value: c.id, checked: elegido === c.id, onchange: () => { elegido = c.id; } }),
-        h('span', h('strong', c.nombre), h('small', direccionCompleta(c) || 'sin dirección')))));
+    const activos = clientes.filter(c => c.activo !== false);
+    const r = activos.filter(c => (c.nombre + ' ' + (c.localidad || '') + ' ' + (c.municipio || '')).toLowerCase().includes(q)).slice(0, 50);
+    lista.replaceChildren(...(r.length ? r.map(c => h('label.opcion', h('input', { type: 'radio', name: 'cli', value: c.id, checked: elegido === c.id, onchange: () => { elegido = c.id; } }),
+        h('span', h('strong', c.nombre), h('small', direccionCompleta(c) || 'sin dirección'))))
+      : [h('p.vacio', activos.length ? 'Ningún cliente coincide con la búsqueda.'
+          : puedeCrear ? 'Aún no hay clientes. Crea el primero aquí abajo.' : 'Aún no hay clientes. Pide a tu responsable que los dé de alta.')]));
   };
+  // Alta rápida sin salir del fichaje: el cliente nuevo queda elegido
+  const nuevo = puedeCrear ? h('button.btn.enlace', { type: 'button', onclick: async () => {
+    const c = await editarCliente(app, { nombre: buscar.value.trim() }, { recargar: false });
+    if (!c) return;
+    clientes.push(c); clientes.sort((a, b) => a.nombre.localeCompare(b.nombre));
+    elegido = c.id; buscar.value = ''; pintar();
+  } }, '+ Nuevo cliente') : null;
   buscar.addEventListener('input', pintar); pintar();
   const titulos = { ENTRADA: '¿Para qué cliente empiezas?', CAMBIO_CLIENTE: '¿Para qué cliente trabajas ahora?', DESPLAZAMIENTO_INICIO: '¿A dónde vas?' };
-  const ok = await dialogo(titulos[tipo], [buscar, lista, tipo === 'DESPLAZAMIENTO_INICIO' ? abrirNav : null], [
+  const ok = await dialogo(titulos[tipo], [buscar, lista, nuevo, tipo === 'DESPLAZAMIENTO_INICIO' ? abrirNav : null], [
     { texto: 'Cancelar', valor: false },
     tipo === 'ENTRADA' ? { texto: 'Sin cliente', valor: 'sin' } : null,
     { texto: tipo === 'DESPLAZAMIENTO_INICIO' ? 'Salir' : 'Aceptar', clase: 'primario', valor: () => {
+      if (!elegido && tipo !== 'DESPLAZAMIENTO_INICIO') { aviso(tipo === 'ENTRADA' ? 'Elige un cliente o pulsa «Sin cliente»' : 'Elige un cliente', 'error'); return undefined; }
       if (tipo === 'DESPLAZAMIENTO_INICIO') {
         // Se abre aquí, dentro del toque, para que el navegador no bloquee la ventana
         preferencia('nav', abrirNav.value);

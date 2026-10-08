@@ -231,9 +231,11 @@ const demo = {
   async clientes(org) { return db().clientes.filter(c => c.org_id === org).sort((a, b) => a.nombre.localeCompare(b.nombre)); },
   async guardarCliente(org, x) {
     const d = db();
-    if (x.id) Object.assign(d.clientes.find(c => c.id === x.id), x);
-    else { if (d.clientes.some(c => c.org_id === org && c.codigo === x.codigo)) throw new Error('Ya existe un registro con ese código'); d.clientes.push({ ...x, id: uid(), org_id: org, activo: true }); }
+    let fila;
+    if (x.id) fila = Object.assign(d.clientes.find(c => c.id === x.id), x);
+    else { if (d.clientes.some(c => c.org_id === org && c.codigo === x.codigo)) throw new Error('Ya existe un registro con ese código'); fila = { activo: true, ...x, id: uid(), org_id: org }; d.clientes.push(fila); }
     guardar(d);
+    return { ...fila };
   },
   async fijarUbicacion(id, lat, lng) { const d = db(); Object.assign(d.clientes.find(c => c.id === id), { lat, lng }); guardar(d); },
 
