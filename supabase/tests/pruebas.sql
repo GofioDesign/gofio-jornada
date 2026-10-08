@@ -248,6 +248,19 @@ do $$ declare f facturas; begin
      <> 'MATERIALES,MANO DE OBRA,TRANSPORTE' then raise exception 'categoría de línea'; end if;
   if (select agrupacion from v_facturas where id = f.id) <> 'RESUMEN' then raise exception 'v_facturas sin agrupación'; end if;
 end $$;
+do $$
+declare f facturas;
+begin
+  -- 0018: concepto único con el total; las líneas se guardan con su cantidad y precio
+  f := public.emitir_factura((select org from ctx), (select id from clientes where codigo = 'B00000000'), '2026-09-24',
+        '[{"descripcion":"Diseño","cantidad":2,"pvp":30,"igic":7},{"descripcion":"Maqueta","cantidad":1,"pvp":15,"igic":7}]',
+        0, null, null, null, null, null, null, null, 'TOTAL', '  Servicios de diseño  ');
+  if f.agrupacion <> 'TOTAL' or f.concepto <> 'Servicios de diseño' or f.base <> 75 then raise exception 'concepto TOTAL: % % %', f.agrupacion, f.concepto, f.base; end if;
+  if (select count(*) from facturas_lineas where factura_id = f.id) <> 2 then raise exception 'TOTAL debe guardar las líneas'; end if;
+  f := public.emitir_factura((select org from ctx), (select id from clientes where codigo = 'B00000000'), '2026-09-24',
+        '[{"descripcion":"Diseño","cantidad":2,"pvp":30,"igic":7}]', 0, null, null, null, null, null, null, null, 'CONCEPTO');
+  if f.agrupacion <> 'CONCEPTO' or f.concepto <> 'Diseño' then raise exception 'CONCEPTO: % %', f.agrupacion, f.concepto; end if;
+end $$;
 select pg_temp.debe_fallar($$select public.emitir_factura((select org from ctx), (select id from clientes where codigo = 'B00000000'), '2026-09-24',
   '[{"descripcion":"x","cantidad":1,"pvp":1,"igic":7}]', 0, null, null, null, null, null, null, null, 'OTRA')$$, 'facturas_agrupacion_check');
 select pg_temp.debe_fallar($$select public.emitir_factura((select org from ctx), (select id from clientes where codigo = 'B00000000'), '2026-09-24',
