@@ -111,9 +111,11 @@ export function anadirObs(actual = '', texto = '') {
 export const lineaDeFactura = l => ({ producto_id: l.producto_id || null, codigo: l.codigo || null, descripcion: l.descripcion,
   cantidad: Number(l.cantidad), unidad: l.unidad || 'ud', pvp: Number(l.pvp_ud), dto: Number(l.dto_pct) || 0, igic: Number(l.igic_pct) || 0,
   coste: Number(l.coste_ud) || 0, familia: l.familia || null, categoria: categoriaDe(l), grupo: l.grupo || '' });
+// Orden en que salen las líneas de una factura emitida: «orden» si se cambió al corregir textos, si no su número.
+export const ordenLineas = (lineas = []) => [...lineas].sort((a, b) => (a.orden ?? a.linea) - (b.orden ?? b.linea) || a.linea - b.linea);
 export const borradorRectificativo = (f, hoy) => ({
   fecha: hoy, irpf_pct: Number(f.irpf_pct) || 0, observaciones: f.observaciones || null,
-  lineas: [...(f.lineas || [])].sort((a, b) => a.linea - b.linea).map(lineaDeFactura),
+  lineas: ordenLineas(f.lineas).map(lineaDeFactura),
   agrupacion: f.agrupacion || 'DETALLE', concepto: f.agrupacion === 'TOTAL' ? f.concepto || null : null,
   desde: f.periodo_desde || null, hasta: f.periodo_hasta || null,
   rectifica: { id: f.id, num: f.num, fecha: f.fecha }, motivo: '' });
@@ -121,4 +123,14 @@ export const borradorRectificativo = (f, hoy) => ({
 export const motivoRectificativa = (r, motivo) => {
   const [a, m, d] = String(r.fecha || '').split('-');
   return `Rectifica la factura ${r.num}${d ? ` de ${d}/${m}/${a}` : ''}. ${String(motivo || '').trim()}`.trim();
+};
+
+// Enlaces del emisor en la factura (el PDF de «Guardar como PDF» los conserva clicables).
+export const urlWeb = w => { const s = String(w || '').trim(); return !s ? null : /^https?:\/\//i.test(s) ? s : 'https://' + s; };
+// WhatsApp: wa.me necesita el número internacional sin «+» ni espacios; un número español de 9 cifras lleva el 34 delante.
+export const urlWhatsApp = tel => {
+  let d = String(tel || '').replace(/[^\d+]/g, '');
+  if (d.startsWith('+')) d = d.slice(1); else if (d.startsWith('00')) d = d.slice(2); else if (/^[6789]\d{8}$/.test(d)) d = '34' + d;
+  d = d.replace(/\D/g, '');
+  return d.length >= 8 ? 'https://wa.me/' + d : null;
 };

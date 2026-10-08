@@ -107,3 +107,22 @@ test('borradorRectificativo: copia líneas en orden, con precio, grupo y referen
   assert.deepEqual(b.rectifica, { id: 'f1', num: 'EMIT26-0004', fecha: '2026-10-08' });
   assert.equal(motivoRectificativa(b.rectifica, ' Precio mal '), 'Rectifica la factura EMIT26-0004 de 08/10/2026. Precio mal');
 });
+
+test('urlWeb y urlWhatsApp', async () => {
+  const { urlWeb, urlWhatsApp } = await import('../app/js/lib/factura.js');
+  assert.equal(urlWeb('gofiodesign.eu'), 'https://gofiodesign.eu');
+  assert.equal(urlWeb('http://x.es'), 'http://x.es');
+  assert.equal(urlWeb(''), null);
+  assert.equal(urlWhatsApp('622 33 44 55'), 'https://wa.me/34622334455');
+  assert.equal(urlWhatsApp('+34 622-33-44-55'), 'https://wa.me/34622334455');
+  assert.equal(urlWhatsApp('0049 151 2345678'), 'https://wa.me/491512345678');
+  assert.equal(urlWhatsApp('12'), null);
+});
+
+test('ordenLineas: usa «orden» si existe y si no el número de línea', async () => {
+  const { ordenLineas, borradorRectificativo } = await import('../app/js/lib/factura.js');
+  const ls = [{ linea: 1, orden: 3 }, { linea: 2, orden: 1 }, { linea: 3, orden: 2 }];
+  assert.deepEqual(ordenLineas(ls).map(l => l.linea), [2, 3, 1]);
+  assert.deepEqual(ordenLineas([{ linea: 2 }, { linea: 1 }]).map(l => l.linea), [1, 2]);
+  assert.deepEqual(borradorRectificativo({ lineas: ls.map(l => ({ ...l, descripcion: 'L' + l.linea, cantidad: 1, pvp_ud: 1 })) }, '2026-10-09').lineas.map(l => l.descripcion), ['L2', 'L3', 'L1']);
+});
