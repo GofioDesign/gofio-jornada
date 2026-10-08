@@ -2,6 +2,7 @@ import { api, DEMO } from '../api.js';
 import { CONFIG } from '../../config.js';
 import { h, accion, aviso, preferencia, ROLES, puedeGestionar, hoyISO } from '../ui.js';
 import { descargar } from '../lib/csv.js';
+import { plantillasObs } from '../lib/factura.js';
 
 export async function vistaAjustes(app, seccion) {
   const e = app.e;
@@ -10,6 +11,7 @@ export async function vistaAjustes(app, seccion) {
   if (gestiona) {
     const [miembros, invitaciones, exportaciones] = await Promise.all([api.miembros(app.org), api.invitaciones(app.org), api.exportaciones(app.org).catch(() => [])]);
     bloques.push(usuarios(app, miembros, invitaciones), plan(app, miembros, exportaciones), empresa(app));
+    if (app.facturacion) bloques.push(observaciones(app));
   }
   const raiz = h('section.pila', h('h1', 'Ajustes'), bloques,
     h('p.ayuda.pie', `Gofio Jornada ${CONFIG.VERSION}${DEMO ? ' · modo demo' : ''} · ${CONFIG.SOPORTE_EMAIL}`));
@@ -185,4 +187,34 @@ function recorteUtil(img) {
   const m = Math.round(Math.min(W, H) * 0.02);   // un pequeño margen para no pegar el contenido al borde
   x0 = Math.max(0, x0 - m); y0 = Math.max(0, y0 - m); x1 = Math.min(W - 1, x1 + m); y1 = Math.min(H - 1, y1 + m);
   return { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+}
+
+// Observaciones recurrentes: textos que se añaden a la factura con un clic desde el borrador.
+function observaciones(app) {
+  const filas = h('div.pila');
+  const fila = (p = {}) => {
+    const titulo = h('input', { value: p.titulo || '', placeholder: 'Nombre (p. ej. Garantía 6 meses)', 'aria-label': 'Nombre' });
+    const texto = h('textarea', { rows: 4, value: p.texto || '', placeholder: 'Texto que sale en la factura', 'aria-label': 'Texto' });
+    const caja = h('div.obs-plantilla', titulo, texto,
+      h('button.btn.enlace', { type: 'button', onclick: () => caja.remove() }, 'Quitar'));
+    caja.datos = () => ({ titulo: titulo.value.trim(), texto: texto.value.trim() });
+    return caja;
+  };
+  filas.append(...plantillasObs(app.e.config).map(fila));
+  const form = h('form.formulario', {
+    onsubmit: ev => {
+      ev.preventDefault();
+      const lista = [...filas.children].map(c => c.datos()).filter(p => p.texto);
+      accion(form.querySelector('button[type=submit]'), async () => {
+        await api.guardarEmpresa(app.org, { config: { ...(app.e.config || {}), observaciones_plantillas: lista } });
+        aviso('Observaciones guardadas', 'ok'); await app.recargar();
+      });
+    },
+  },
+    h('p.ayuda', 'Como las firmas del correo: en el borrador de la factura las añades a las observaciones con un clic, y luego puedes retocarlas.'),
+    filas,
+    h('div.acciones',
+      h('button.btn', { type: 'button', onclick: () => { const c = fila(); filas.append(c); c.querySelector('input').focus(); } }, '+ Añadir'),
+      h('button.btn.primario', { type: 'submit' }, 'Guardar')));
+  return h('div.tarjeta', { id: 'observaciones' }, h('h2', 'Observaciones recurrentes'), form);
 }
