@@ -126,3 +126,12 @@ test('ordenLineas: usa «orden» si existe y si no el número de línea', async 
   assert.deepEqual(ordenLineas([{ linea: 2 }, { linea: 1 }]).map(l => l.linea), [1, 2]);
   assert.deepEqual(borradorRectificativo({ lineas: ls.map(l => ({ ...l, descripcion: 'L' + l.linea, cantidad: 1, pvp_ud: 1 })) }, '2026-10-09').lineas.map(l => l.descripcion), ['L2', 'L3', 'L1']);
 });
+
+test('numeroAnterior normaliza el número y exige la serie del año', async () => {
+  const { numeroAnterior } = await import('../app/js/lib/factura.js');
+  assert.equal(numeroAnterior(' emit25-7 ', '2025-11-10'), 'EMIT25-0007');
+  assert.equal(numeroAnterior('EMIT26-0003', '2026-02-01'), 'EMIT26-0003');
+  assert.equal(numeroAnterior('EMIT26-12345', '2026-02-01'), 'EMIT26-12345');
+  assert.throws(() => numeroAnterior('factura 7', '2025-11-10'), /formato/);
+  assert.throws(() => numeroAnterior('EMIT25-0009', '2026-01-10'), /año/);
+});

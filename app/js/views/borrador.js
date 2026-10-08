@@ -2,16 +2,19 @@
 // hasta «Emitir factura»: entonces el servidor numera, calcula, congela los datos y encadena la huella.
 import { api } from '../api.js';
 import { h, montar, accion, aviso, eur, hoyISO, sumarDias, puedeGestionar } from '../ui.js';
-import { calcular, irpfCliente, emisorDe, categoriaDe, CATEGORIAS, AGRUPACIONES, NOMBRE_CATEGORIA, plantillasObs, anadirObs, motivoRectificativa } from '../lib/factura.js';
+import { calcular, irpfCliente, emisorDe, categoriaDe, CATEGORIAS, AGRUPACIONES, NOMBRE_CATEGORIA, plantillasObs, anadirObs, motivoRectificativa, numeroAnterior } from '../lib/factura.js';
 import { documento, imprimir, TXT } from './factura.js';
 
 export async function vistaBorrador(app, id) {
-  const nuevo = !id || id === 'nuevo';
+  const nuevo = !id || id === 'nuevo' || id === 'anterior';
   const [clientes, productos, b] = await Promise.all([api.clientes(app.org), api.productos(app.org).catch(() => []), nuevo ? null : api.borrador(app.org, id)]);
   if (!nuevo && !b) return h('p.vacio', 'Borrador no encontrado.');
   const cfg = app.e.config || {};
   const igicDefecto = Number(cfg.igic_defecto ?? 7);
   const d = structuredClone(b?.datos || {});
+  // Factura anterior a la app: se registra con su número y fecha originales (no se emite ni se numera)
+  if (id === 'anterior') d.anterior = true;
+  const anterior = !!d.anterior;
   let borradorId = b?.id || null;
   const lineaVacia = () => ({ descripcion: '', cantidad: 1, unidad: 'ud', pvp: 0, dto: 0, igic: igicDefecto, categoria: 'MANO DE OBRA' });
   const lineas = d.lineas?.length ? d.lineas : [lineaVacia()];
@@ -33,6 +36,8 @@ export async function vistaBorrador(app, id) {
   // Rectificativa: sustituye a una factura emitida (d.rectifica = {id, num, fecha}); el motivo es obligatorio.
   const rect = d.rectifica || null;
   const motivo = h('input', { id: 'b-motivo', value: d.motivo || '', required: true, maxLength: 300, placeholder: 'Qué se corrige (p. ej. precio del desplazamiento)', oninput: () => previa() });
+  const numAnt = h('input', { id: 'b-num', value: d.num || '', required: true, maxLength: 20, placeholder: 'EMIT26-0001', autocapitalize: 'characters', oninput: () => previa() });
+  const cobrada = h('input', { id: 'b-cobrada', type: 'date', value: d.cobrada || '' });
   const plantillas = plantillasObs(app.e.config);
   const elegirObs = h('select', { id: 'b-obs-plantilla', 'aria-label': 'Añadir observación recurrente',
     onchange: () => { const p = plantillas[elegirObs.value]; elegirObs.value = ''; if (p) { obs.value = anadirObs(obs.value, p.texto); previa(); } } },
@@ -81,8 +86,10 @@ export async function vistaBorrador(app, id) {
   const datos = () => ({ fecha: fecha.value, irpf_pct: Number(irpf.value) || 0, observaciones: obs.value.trim() || null, lineas: validas(), agrupacion: agrupacion.value,
                          concepto: concepto.value.trim() || null,
                          desde: pDesde.value || null, hasta: pHasta.value || pDesde.value || null, horas: d.horas || null,
-                         ...(rect ? { rectifica: rect, motivo: motivo.value.trim() } : {}) });
+                         ...(rect ? { rectifica: rect, motivo: motivo.value.trim() } : {}),
+                         ...(anterior ? { anterior: true, num: numAnt.value.trim(), cobrada: cobrada.value || null } : {}) });
 
+  const numPrevia = () => { try { return numeroAnterior(numAnt.value, fecha.value); } catch { return numAnt.value.trim().toUpperCase(); } };
   const importes = [];
   const previa = () => {
     cajaConcepto.hidden = agrupacion.value !== 'TOTAL';
@@ -92,7 +99,7 @@ export async function vistaBorrador(app, id) {
     const t = calcular(validas(), irpf.value);
     const porLinea = calcular(lineas, 0).lineas;
     importes.forEach((el, i) => { el.textContent = eur(porLinea[i]?.base); });
-    const f = { borrador: true, fecha: fecha.value, tipo_doc: rect ? 'RECTIFICATIVA' : 'FACTURA', motivo: rect ? motivoRectificativa(rect, motivo.value) : null, vencimiento: fecha.value && sumarDias(fecha.value, Number(cfg.dias_vencimiento ?? 30)),
+    const f = { borrador: !anterior, num: anterior ? numPrevia() : null, fecha: fecha.value, tipo_doc: rect ? 'RECTIFICATIVA' : 'FACTURA', motivo: rect ? motivoRectificativa(rect, motivo.value) : null, vencimiento: fecha.value && sumarDias(fecha.value, Number(cfg.dias_vencimiento ?? 30)),
       periodo_desde: pDesde.value || null, periodo_hasta: pHasta.value || pDesde.value || null, cliente: cli() || {}, emisor: emisorDe(app.e, t.igic_desglose),
       agrupacion: agrupacion.value, concepto: concepto.value,
       lineas: t.lineas.map(l => ({ descripcion: l.descripcion, cantidad: l.cantidad, unidad: l.unidad, pvp_ud: l.pvp, dto_pct: l.dto, igic_pct: l.igic, base: l.base, categoria: l.categoria, grupo: l.grupo })),
@@ -153,6 +160,17 @@ export async function vistaBorrador(app, id) {
     if (x.agrupacion === 'TOTAL' && !x.concepto) throw new Error('Escribe el concepto que sale en la factura.');
     if (rect && !x.motivo) { motivo.focus(); throw new Error('Escribe el motivo de la rectificación.'); }
     const total = calcular(x.lineas, x.irpf_pct).total;
+    if (anterior) {
+      let num;
+      try { num = numeroAnterior(x.num, x.fecha); } catch (e) { numAnt.focus(); throw e; }
+      if (!confirm(`¿Registrar la factura anterior ${num} a ${c.nombre} por ${eur(total)}?\n\n${x.cobrada ? 'Quedará cobrada' : 'Quedará pendiente de cobro'}. Una vez registrada no se puede borrar.`)) return;
+      await guardar();
+      const f = await api.registrarFacturaAnterior(app.org, { cliente_id: c.id, ...x, num });
+      await api.borrarBorrador(borradorId).catch(() => { });
+      aviso(`Factura ${f.num} registrada: ${eur(f.total)}`, 'ok');
+      location.hash = '#/facturacion/factura/' + f.id;
+      return;
+    }
     if (!confirm(rect ? `¿Emitir la rectificativa de ${rect.num} a ${c.nombre} por ${eur(total)}?\n\nLa factura ${rect.num} quedará como rectificada y dejará de contar como pendiente.`
                       : `¿Emitir la factura a ${c.nombre} por ${eur(total)}?\n\nUna factura emitida no se puede borrar ni modificar.`)) return;
     await guardar();   // si falla la emisión, el borrador queda guardado tal cual
@@ -172,10 +190,13 @@ export async function vistaBorrador(app, id) {
   return h('section.pila',
     h('div.no-imprimir.pila',
       h('a.volver', { href: '#/facturacion' }, '← Facturación'),
-      h('div.cab', h('h1', rect ? `Rectificativa de ${rect.num}` : 'Borrador de factura'),
+      h('div.cab', h('h1', rect ? `Rectificativa de ${rect.num}` : anterior ? 'Factura anterior' : 'Borrador de factura'),
         h('div.acciones', idioma, h('button.btn', { onclick: () => imprimir(`Borrador ${cli()?.nombre || ''}`) }, 'PDF borrador'))),
       h('div.tarjeta.formulario',
         h('div.dos', h('div', h('label', { for: 'b-cliente' }, 'Cliente'), cliente), h('div', h('label', { for: 'b-fecha' }, 'Fecha de la factura'), fecha)),
+        anterior ? [h('p.ayuda', 'Para dar de alta una factura que ya emitiste fuera de la app: escribe su número y su fecha originales y copia sus líneas. No cambia la numeración de las facturas nuevas.'),
+          h('div.dos', h('div', h('label', { for: 'b-num' }, 'Número de la factura'), numAnt),
+            h('div', h('label', { for: 'b-cobrada' }, 'Cobrada el (vacío si está pendiente)'), cobrada))] : null,
         rect ? [h('p.ayuda', `Esta factura sustituye a la ${rect.num}: corrige lo que haga falta y emítela. Saldrá en la serie de rectificativas y la ${rect.num} quedará como rectificada.`),
           h('label', { for: 'b-motivo' }, 'Motivo de la rectificación (sale en la factura)'), motivo] : null,
         d.horas?.length ? h('p.ayuda', `Incluye ${d.horas.length === 1 ? '1 registro' : d.horas.length + ' registros'} de jornada (${fechaCorta(diasHoras[0])} – ${fechaCorta(diasHoras.at(-1))}). Al emitir quedarán marcados como facturados.`) : null,
@@ -191,7 +212,7 @@ export async function vistaBorrador(app, id) {
         obs,
         h('div.acciones',
           h('button.btn', { onclick: ev => accion(ev.currentTarget, async () => { await guardar(); aviso('Borrador guardado', 'ok'); }) }, 'Guardar borrador'),
-          h('button.btn.primario', { onclick: ev => accion(ev.currentTarget, emitir) }, rect ? 'Emitir rectificativa' : 'Emitir factura'),
+          h('button.btn.primario', { onclick: ev => accion(ev.currentTarget, emitir) }, rect ? 'Emitir rectificativa' : anterior ? 'Registrar factura anterior' : 'Emitir factura'),
           h('button.btn.peligro', { onclick: ev => accion(ev.currentTarget, borrar) }, borradorId ? 'Borrar borrador' : 'Descartar'))),
       h('h2', 'Vista previa')),
     hoja);
