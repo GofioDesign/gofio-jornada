@@ -23,6 +23,14 @@ export const app = {
   async recargar() { await cargarEmpresas(); router(); },
 };
 
+// ?nfc=coche: la app se abrió desde una etiqueta NFC. Se quita de la URL y la Jornada pregunta qué fichar.
+const parametros = new URLSearchParams(location.search);
+if (parametros.has('nfc')) {
+  app.nfc = (parametros.get('nfc') || 'NFC').slice(0, 40);
+  const resto = location.search.slice(1).split('&').filter(x => x && !/^nfc(=|$)/.test(x)).join('&');
+  history.replaceState(null, '', location.pathname + (resto ? '?' + resto : '') + '#/');
+}
+
 async function cargarEmpresas() {
   app.empresas = await api.misEmpresas();
   app.superadmin = await api.esSuperadmin().catch(() => false);

@@ -151,3 +151,33 @@ export function tiempoPorDestino(trs) {
   }
   return [...g.values()].sort((a, b) => a.sinAsignar - b.sinAsignar || b.minutos - a.minutos);
 }
+
+// Instante (ms) de una hora «HH:MM» de un día en la zona horaria de la empresa.
+export function momentoLocal(dia, hhmm, tz = 'Atlantic/Canary') {
+  const [y, mo, d] = dia.split('-').map(Number), [hh, mi] = hhmm.split(':').map(Number);
+  const deseado = Date.UTC(y, mo - 1, d, hh, mi);
+  let ms = deseado;
+  for (let i = 0; i < 2; i++) {   // dos pasadas bastan también en los cambios de hora
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' })
+      .formatToParts(new Date(ms)).map(x => [x.type, x.value]));
+    ms += deseado - Date.UTC(+p.year, p.month - 1, +p.day, +p.hour, +p.minute);
+  }
+  return ms;
+}
+
+// Parte [desde, hasta) de un tramo que se asigna a otro cliente o proyecto: qué cambios de cliente hay que registrar.
+// Devuelve [{ momento, cliente_id, proyecto_id }] en el orden en que se registran, o lanza un error si la parte no cabe.
+export const instante = x => typeof x === 'number' ? x : Date.parse(x);
+export function cambiosParaParte(t, desde, hasta, nuevo) {
+  const ini = instante(t.inicio), fin = t.fin ? instante(t.fin) : Date.now();
+  if (!(desde >= ini && hasta <= fin && desde < hasta)) throw new Error('Elige horas dentro del tramo, con el inicio antes que el fin');
+  const cambios = [];
+  // a partir de «hasta» se vuelve a lo que había (si el tramo sigue después)
+  if (hasta < fin) cambios.push({ momento: hasta, cliente_id: t.cliente_id || null, proyecto_id: t.proyecto_id || null });
+  cambios.push({ momento: desde, cliente_id: nuevo.cliente_id || null, proyecto_id: nuevo.proyecto_id || null });
+  return cambios;
+}
+
+// Nota de un tramo (misma persona y misma hora de inicio)
+export const notaDeTramo = (notas, t) => notas.find(n => n.user_id === t.user_id && Date.parse(n.inicio) === instante(t.inicio)) || null;
+export const resumenNota = n => !n ? '' : [n.texto?.trim(), n.materiales?.length ? n.materiales.map(m => `${m.cantidad ?? ''} ${m.unidad || ''} ${m.descripcion}`.replace(/\s+/g, ' ').trim()).join(', ') : null].filter(Boolean).join(' · ');

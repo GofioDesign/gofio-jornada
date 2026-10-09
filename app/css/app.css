@@ -306,3 +306,9 @@ th button.orden:hover { text-decoration: underline; }
 .sa-unidad summary { cursor: pointer; }
 .sa-editar { display: flex; flex-wrap: wrap; gap: .75rem; align-items: end; margin-top: .75rem; }
 .sa-editar label:not(.check) { display: grid; gap: .25rem; }
+
+.nfc-url { display: block; margin: .5rem 0; padding: .5rem; background: var(--fondo); border-radius: 6px; word-break: break-all; font-size: .85rem; }
+.nota-tramo { display: block; color: var(--suave); font-style: italic; white-space: pre-line; }
+.rango-tramo { margin-bottom: .5rem; }
+.rango-tramo input[type=time] { width: auto; }
+.materiales .material { display: grid; grid-template-columns: 1fr 5rem 4rem auto; gap: .35rem; margin-bottom: .35rem; }

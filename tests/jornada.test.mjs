@@ -134,3 +134,23 @@ test('tiempo por cliente o proyecto, con lo sin asignar al final', async () => {
   ]);
   assert.deepEqual(r.map(f => [f.proyecto_id || f.cliente_id || '-', f.minutos, f.personas.length]), [['p1', 120, 1], ['c1', 90, 2], ['-', 500, 1]]);
 });
+
+test('hora local de la empresa a instante, también en horario de verano', async () => {
+  const { momentoLocal } = await import('../app/js/lib/jornada.js');
+  assert.equal(new Date(momentoLocal('2026-09-10', '09:00', 'Atlantic/Canary')).toISOString(), '2026-09-10T08:00:00.000Z');
+  assert.equal(new Date(momentoLocal('2026-01-10', '09:00', 'Atlantic/Canary')).toISOString(), '2026-01-10T09:00:00.000Z');
+  assert.equal(new Date(momentoLocal('2026-07-01', '23:30', 'Europe/Madrid')).toISOString(), '2026-07-01T21:30:00.000Z');
+});
+
+test('asignar solo una parte de un tramo', async () => {
+  const { cambiosParaParte } = await import('../app/js/lib/jornada.js');
+  const t = { inicio: '2026-09-10T07:00:00Z', fin: '2026-09-10T13:00:00Z', cliente_id: 'A', proyecto_id: null };
+  const ms = s => Date.parse('2026-09-10T' + s + ':00Z');
+  // en medio: se vuelve a A al final y se asigna B al principio de la parte
+  assert.deepEqual(cambiosParaParte(t, ms('08:00'), ms('10:00'), { cliente_id: 'B' }),
+    [{ momento: ms('10:00'), cliente_id: 'A', proyecto_id: null }, { momento: ms('08:00'), cliente_id: 'B', proyecto_id: null }]);
+  // hasta el final del tramo: un solo cambio
+  assert.equal(cambiosParaParte(t, ms('08:00'), ms('13:00'), { proyecto_id: 'P' }).length, 1);
+  assert.throws(() => cambiosParaParte(t, ms('06:00'), ms('10:00'), { cliente_id: 'B' }));
+  assert.throws(() => cambiosParaParte(t, ms('10:00'), ms('09:00'), { cliente_id: 'B' }));
+});

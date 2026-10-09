@@ -7,7 +7,7 @@ import { plantillasObs } from '../lib/factura.js';
 export async function vistaAjustes(app, seccion) {
   const e = app.e;
   const gestiona = puedeGestionar(app.rol);
-  const bloques = [cuenta(app)];
+  const bloques = [cuenta(app), etiquetasNfc()];
   if (gestiona) {
     const [miembros, invitaciones, exportaciones] = await Promise.all([api.miembros(app.org), api.invitaciones(app.org), api.exportaciones(app.org).catch(() => [])]);
     bloques.push(usuarios(app, miembros, invitaciones), plan(app, miembros, exportaciones), empresa(app));
@@ -28,6 +28,20 @@ function cuenta(app) {
     h('p', h('strong', app.e.mi_nombre || ''), ' · ', app.e.usuario_email || '', ' · ', ROLES[app.rol]),
     h('label', { for: 'pref-nav' }, 'Navegación al salir hacia un cliente'), nav,
     h('button.btn', { onclick: async () => { await api.salir(); location.hash = '#/'; location.reload(); } }, 'Cerrar sesión'));
+}
+
+// Etiquetas NFC: una pegatina con esta dirección abre la app y pregunta qué fichar (p. ej. «¿Has terminado?» al dejar el móvil en el soporte del coche).
+function etiquetasNfc() {
+  const nombre = h('input', { id: 'nfc-nombre', value: 'coche', maxLength: 40 });
+  const url = () => `${location.origin}${location.pathname}?nfc=${encodeURIComponent(nombre.value.trim() || 'coche')}`;
+  const salida = h('code.nfc-url', url());
+  nombre.addEventListener('input', () => { salida.textContent = url(); });
+  return h('div.tarjeta', { id: 'nfc' },
+    h('h2', 'Etiqueta NFC'),
+    h('p.ayuda', 'Graba esta dirección en una pegatina NFC (con una app como «NFC Tools», como registro de tipo URL) y pégala, por ejemplo, en el soporte del coche. Al acercar el móvil se abre la app y te pregunta si has terminado, si has llegado o si empiezas.'),
+    h('label', { for: 'nfc-nombre' }, 'Nombre de la etiqueta'), nombre, salida,
+    h('button.btn', { onclick: async () => { await navigator.clipboard?.writeText(url()).catch(() => { }); aviso('Dirección copiada', 'ok'); } }, 'Copiar dirección'),
+    h('p.ayuda', 'En iPhone aparece un aviso al acercarlo: tócalo para abrir la app. En Android se abre directamente.'));
 }
 
 function usuarios(app, miembros, invitaciones) {
