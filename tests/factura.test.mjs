@@ -1,7 +1,7 @@
 // npm test
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { calcular, irpfCliente, categoriaDeFamilia, categoriaDe, porCategoria, resumenPorCategoria, totalPorIgic, conceptoDe, porConcepto } from '../app/js/lib/factura.js';
+import { calcular, irpfCliente, categoriaDeFamilia, categoriaDe, esManoDeObra, esDesplazamiento, porCategoria, resumenPorCategoria, totalPorIgic, conceptoDe, porConcepto } from '../app/js/lib/factura.js';
 
 test('calcular: mismos totales que la prueba SQL de emitir_factura', () => {
   // 75 € -5 % + 3,5 h a 30 €, IGIC 7 %, IRPF 15 % (supabase/tests/pruebas.sql)
@@ -134,4 +134,16 @@ test('numeroAnterior normaliza el número y exige la serie del año', async () =
   assert.equal(numeroAnterior('EMIT26-12345', '2026-02-01'), 'EMIT26-12345');
   assert.throws(() => numeroAnterior('factura 7', '2025-11-10'), /formato/);
   assert.throws(() => numeroAnterior('EMIT25-0009', '2026-01-10'), /año/);
+});
+
+test('productos para facturar horas: mano de obra por categoría, familia o unidad horaria', () => {
+  assert.ok(esManoDeObra({ familia: 'MANO DE OBRA', unidad: 'ud' }));
+  assert.ok(esManoDeObra({ familia: 'DISEÑO', unidad: 'ud' }));
+  assert.ok(esManoDeObra({ familia: 'MATERIALES', categoria: 'MANO DE OBRA' }));
+  assert.ok(esManoDeObra({ familia: 'OTROS', unidad: 'H' }));
+  assert.ok(esManoDeObra({ unidad: ' horas ' }));
+  assert.ok(!esManoDeObra({ familia: 'MATERIALES', unidad: 'ud' }));
+  assert.ok(esDesplazamiento({ categoria: 'TRANSPORTE', codigo: 'KM' }));
+  assert.ok(esDesplazamiento({ familia: 'OTROS', codigo: 'DESPL-01' }));
+  assert.ok(!esDesplazamiento({ familia: 'MANO DE OBRA', codigo: 'MO-1' }));
 });
