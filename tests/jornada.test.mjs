@@ -122,3 +122,15 @@ test('filasHorarios: una fila por tramo, ordenadas por persona, día y hora', as
   assert.equal(filas[2].Horas, 1.5); assert.equal(filas[2].Cliente, 'Casa María');
   assert.deepEqual(Object.keys(filas[0]), COLUMNAS_HORARIOS);
 });
+
+test('tiempo por cliente o proyecto, con lo sin asignar al final', async () => {
+  const { tiempoPorDestino } = await import('../app/js/lib/jornada.js');
+  const r = tiempoPorDestino([
+    { tipo: 'TRABAJO', user_id: 'a', cliente_id: 'c1', minutos: 60 },
+    { tipo: 'TRABAJO', user_id: 'b', cliente_id: 'c1', minutos: 30 },
+    { tipo: 'TRABAJO', user_id: 'a', cliente_id: 'c1', proyecto_id: 'p1', minutos: 120 },
+    { tipo: 'TRABAJO', user_id: 'a', minutos: 500 },
+    { tipo: 'PAUSA', user_id: 'a', minutos: 15 },
+  ]);
+  assert.deepEqual(r.map(f => [f.proyecto_id || f.cliente_id || '-', f.minutos, f.personas.length]), [['p1', 120, 1], ['c1', 90, 2], ['-', 500, 1]]);
+});
