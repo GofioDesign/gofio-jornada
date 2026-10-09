@@ -25,7 +25,8 @@ export async function vistaProyectos(app) {
     lista.replaceChildren(...(r.length ? r.map(p => h('div.item', { role: 'link', tabIndex: 0,
         onclick: () => { location.hash = '#/proyectos/' + p.id; }, onkeydown: e => { if (e.key === 'Enter') location.hash = '#/proyectos/' + p.id; } },
       h('div', h('strong', p.nombre), h('span.etiqueta', TIPOS[p.tipo] || p.tipo), p.activo === false ? h('span.etiqueta', 'cerrado') : null,
-        h('small', cli(p.cliente_id) || 'Sin cliente'))))
+        h('small', cli(p.cliente_id) || 'Sin cliente')),
+      puedeEditar(app.rol) ? h('button.btn.mini', { type: 'button', onkeydown: e => e.stopPropagation(), onclick: e => { e.stopPropagation(); editar(app, p, clientes); } }, 'Editar') : null))
       : [h('p.vacio', proyectos.length ? 'Ningún proyecto coincide con el filtro.' : 'Aún no hay proyectos.')]));
   };
   [buscar, filtroTipo, filtroEstado].forEach(x => x.addEventListener('input', pintar));
@@ -86,6 +87,7 @@ export async function editar(app, p, clientes, { recargar = true } = {}) {
     h('p.ayuda', 'Propio: de tu empresa. Ajeno: de un tercero para el que trabajas.'),
     h('label', { for: 'p-cliente' }, 'Cliente'), cliente,
     h('p.ayuda', 'Si tiene cliente, las horas del proyecto cuentan también como horas de ese cliente.'),
+    p.id ? h('p.ayuda', 'Si cambias el cliente, las horas que se fichen desde ahora irán al nuevo. Las ya fichadas siguen con el cliente que tenían, porque el registro de jornada no se modifica.') : null,
     h('label', { for: 'p-notas' }, 'Notas'), notas,
     h('label.check', activo, ' Abierto (se puede elegir al fichar)'));
   return dialogo(p.id ? 'Editar proyecto' : 'Nuevo proyecto', form, [
