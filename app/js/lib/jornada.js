@@ -136,3 +136,18 @@ export function filasHorarios(trs, x) {
       Inicio: t.inicio ? x.hora(t.inicio) : '', Fin: t.fin ? x.hora(t.fin) : '', Minutos: t.minutos, Horas: Math.round(t.minutos / 6) / 10,
       Cliente: x.cliente(t.cliente_id) || '', Proyecto: x.proyecto(t.proyecto_id) || '', 'Km línea recta': Number(t.km) || 0 }));
 }
+
+// Tiempo trabajado agrupado por proyecto (o cliente si no hay proyecto); lo sin asignar va al final.
+export function tiempoPorDestino(trs) {
+  const g = new Map();
+  for (const t of trs) {
+    if (t.tipo && t.tipo !== 'TRABAJO') continue;
+    const clave = t.proyecto_id ? 'p:' + t.proyecto_id : t.cliente_id ? 'c:' + t.cliente_id : '-';
+    const f = g.get(clave) || { cliente_id: t.proyecto_id ? t.cliente_id || null : t.cliente_id || null, proyecto_id: t.proyecto_id || null,
+      sinAsignar: clave === '-', minutos: 0, personas: [] };
+    f.minutos += Number(t.minutos) || 0;
+    if (!f.personas.includes(t.user_id)) f.personas.push(t.user_id);
+    g.set(clave, f);
+  }
+  return [...g.values()].sort((a, b) => a.sinAsignar - b.sinAsignar || b.minutos - a.minutos);
+}
