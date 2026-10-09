@@ -4,6 +4,7 @@
 import { CONFIG } from '../config.js';
 import { estadoActual, tramos, totales, diaLocal } from './lib/jornada.js';
 import { calcular, irpfCliente, emisorDe, categoriaDe, conceptoDe, motivoRectificativa, numeroAnterior, SIN_HUELLA } from './lib/factura.js';
+const masDias = (iso, n) => { const d = new Date(iso + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 
 export const DEMO = !CONFIG.SUPABASE_URL || /\?demo|#demo/.test(location.href);
 
@@ -93,6 +94,21 @@ const supa = {
   async guardarProyecto(org, x) {
     const c = await cliente(); const { id, ...datos } = x; datos.org_id = org;
     return ok(id ? await c.from('proyectos').update(datos).eq('id', id).select().single() : await c.from('proyectos').insert(datos).select().single());
+  },
+  // ---- notas de los tramos de trabajo (tareas y materiales)
+  async notasTramo(org, desde, hasta, user) {
+    const c = await cliente();
+    // margen de un día por la zona horaria; se cruza con los tramos por persona y hora de inicio
+    let q = c.from('notas_tramo').select('*').eq('org_id', org).gte('inicio', masDias(desde, -1)).lt('inicio', masDias(hasta, 2));
+    if (user) q = q.eq('user_id', user);
+    return ok(await q);
+  },
+  async guardarNotaTramo(org, x) {
+    const c = await cliente(); const fila = { org_id: org, user_id: x.user_id, inicio: x.inicio, texto: x.texto || '', materiales: x.materiales || [] };
+    if (!fila.texto.trim() && !fila.materiales.length) {
+      return ok(await c.from('notas_tramo').delete().eq('org_id', org).eq('user_id', x.user_id).eq('inicio', x.inicio));
+    }
+    return ok(await c.from('notas_tramo').upsert(fila, { onConflict: 'org_id,user_id,inicio' }).select().single());
   },
   async fijarUbicacion(id, lat, lng) { const c = await cliente(); return ok(await c.rpc('fijar_ubicacion_cliente', { p_cliente: id, p_lat: lat, p_lng: lng })); },
 
@@ -294,6 +310,16 @@ const demo = {
     const d = db(); cliente_id = proyectoCliente(d, proyecto_id, cliente_id);
     const f = { id: uid(), org_id: org, user_id: user || 'demo-user', tipo: 'CAMBIO_CLIENTE', cliente_id, proyecto_id: proyecto_id || null, momento: new Date().toISOString(), momento_declarado: momento, motivo: 'Cliente asignado a posteriori', origen: 'RESPONSABLE', estado: 'APROBADA' };
     d.fichajes.push(f); guardar(d); return f;
+  },
+  async notasTramo(org, desde, hasta, user) {
+    return (db().notas || []).filter(n => n.org_id === org && (!user || n.user_id === user)
+      && n.inicio.slice(0, 10) >= masDias(desde, -1) && n.inicio.slice(0, 10) <= masDias(hasta, 1));
+  },
+  async guardarNotaTramo(org, x) {
+    const d = db(); d.notas = (d.notas || []).filter(n => !(n.org_id === org && n.user_id === x.user_id && Date.parse(n.inicio) === Date.parse(x.inicio)));
+    const n = { id: uid(), org_id: org, user_id: x.user_id, inicio: new Date(x.inicio).toISOString(), texto: x.texto || '', materiales: x.materiales || [] };
+    if (n.texto.trim() || n.materiales.length) d.notas.push(n);
+    guardar(d); return n;
   },
   async anularFichajes(org, ids, motivo) {
     const d = db(); let n = 0;

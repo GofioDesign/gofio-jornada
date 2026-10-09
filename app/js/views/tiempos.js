@@ -2,14 +2,14 @@
 // asignar un tramo no cambia las horas de entrada y salida, solo dice en qué se trabajó.
 import { api } from '../api.js';
 import { h, montar, accion, aviso, hora, fecha, hoyISO, sumarDias } from '../ui.js';
-import { fmtMin, filasHorarios, COLUMNAS_HORARIOS, tiempoPorDestino } from '../lib/jornada.js';
-import { elegirCliente } from './jornada.js';
+import { fmtMin, filasHorarios, COLUMNAS_HORARIOS, tiempoPorDestino, notaDeTramo, resumenNota } from '../lib/jornada.js';
+import { asignarTramo, editarNotaTramo } from './jornada.js';
 import { toCSV, descargar } from '../lib/csv.js';
 
 export async function vistaTiempos(app) {
   const hoy = hoyISO(app.tz);
-  const [miembros, clientes, proyectos] = await Promise.all([
-    api.miembros(app.org), api.clientes(app.org), api.proyectos(app.org).catch(() => []),
+  const [miembros, clientes, proyectos, productos] = await Promise.all([
+    api.miembros(app.org), api.clientes(app.org), api.proyectos(app.org).catch(() => []), api.productos(app.org).catch(() => []),
   ]);
   const nombre = id => miembros.find(m => m.user_id === id)?.nombre || 'Sin nombre';
   const cli = id => clientes.find(c => c.id === id)?.nombre;
@@ -24,12 +24,10 @@ export async function vistaTiempos(app) {
   let trs = [];
 
   const asignar = async (t, btn) => {
-    const r = await elegirCliente(app, clientes, 'ASIGNAR', { proyectos,
-      titulo: `${nombre(t.user_id)} · ${fecha(t.dia)} de ${hora(t.inicio, app.tz)} a ${t.fin ? hora(t.fin, app.tz) : 'ahora'}` });
-    if (!r || (!r.cliente_id && !r.proyecto_id)) return;
-    const ok = await accion(btn, () => api.asignarCliente(app.org, new Date(t.inicio).toISOString(), r.proyecto_id ? null : r.cliente_id, r.proyecto_id, t.user_id));
-    if (ok) { aviso('Asignado', 'ok'); await cargar(); }
+    if (await asignarTramo(app, clientes, proyectos, t, btn, { user: t.user_id,
+      titulo: `${nombre(t.user_id)} · ${fecha(t.dia)} de ${hora(t.inicio, app.tz)} a ${t.fin ? hora(t.fin, app.tz) : 'ahora'}` })) await cargar();
   };
+  const nota = async t => { if (await editarNotaTramo(app, t, notaDeTramo(notas, t), productos)) await cargar(); };
 
   const pintar = () => {
     const filas = tiempoPorDestino(trs);
@@ -45,12 +43,19 @@ export async function vistaTiempos(app) {
       .sort((a, b) => b.dia.localeCompare(a.dia) || String(a.inicio).localeCompare(String(b.inicio)));
     montar(tramosEl, lista.length ? h('div.lista', lista.map(t => h('div.item',
         h('div', h('strong', `${fecha(t.dia)} · ${nombre(t.user_id)}`),
-          h('small', `${hora(t.inicio, app.tz)} – ${t.fin ? hora(t.fin, app.tz) : 'ahora'} · ${fmtMin(t.minutos)} · ${enQue(t) || 'sin asignar'}`)),
-        h('button.btn.mini', { onclick: e => asignar(t, e.currentTarget) }, t.cliente_id || t.proyecto_id ? 'Cambiar' : 'Asignar'))))
+          h('small', `${hora(t.inicio, app.tz)} – ${t.fin ? hora(t.fin, app.tz) : 'ahora'} · ${fmtMin(t.minutos)} · ${enQue(t) || 'sin asignar'}`),
+          notaDeTramo(notas, t) ? h('small.nota-tramo', '📝 ' + resumenNota(notaDeTramo(notas, t))) : null),
+        h('div.fila-botones',
+          h('button.btn.mini', { onclick: e => asignar(t, e.currentTarget) }, t.cliente_id || t.proyecto_id ? 'Cambiar' : 'Asignar'),
+          h('button.btn.mini', { onclick: () => nota(t) }, notaDeTramo(notas, t) ? 'Nota' : '+ Nota')))))
       : h('p.vacio', soloSin.checked ? 'No hay tramos sin asignar en ese periodo. 👍' : 'Sin tramos de trabajo en ese periodo.'));
   };
+  let notas = [];
   const cargar = async () => {
-    trs = (await api.tramos(app.org, desde.value, hasta.value, persona.value || null)).filter(t => t.tipo === 'TRABAJO');
+    [trs, notas] = await Promise.all([
+      api.tramos(app.org, desde.value, hasta.value, persona.value || null).then(x => x.filter(t => t.tipo === 'TRABAJO')),
+      api.notasTramo(app.org, desde.value, hasta.value, persona.value || null).catch(() => []),
+    ]);
     pintar();
   };
   [desde, hasta, persona].forEach(x => x.addEventListener('change', () => accion(null, cargar)));
@@ -73,6 +78,6 @@ export async function vistaTiempos(app) {
     h('p.ayuda', 'En qué cliente o proyecto se ha trabajado. Asignar un tramo no cambia el registro de jornada (Equipo): las horas de entrada y salida siguen siendo las fichadas.'),
     h('div.filtros', desde, hasta, persona, exportarHorarios),
     h('div.tarjeta', h('h2', 'Horas por cliente y proyecto'), resumenEl),
-    h('div.tarjeta', h('h2', 'Tramos'), h('p.ayuda', 'Asigna cliente o proyecto a lo que quedó sin asignar, o cámbialo.'),
+    h('div.tarjeta', h('h2', 'Tramos'), h('p.ayuda', 'Asigna cliente o proyecto a un tramo entero o solo a una parte (de tal hora a tal hora), y añade una nota con las tareas y los materiales.'),
       h('label.check', soloSin, ' Solo sin asignar'), tramosEl));
 }

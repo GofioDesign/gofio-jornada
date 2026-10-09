@@ -389,7 +389,6 @@ select pg_temp.debe_fallar(format($q$select public.asignar_cliente(%L, now() + i
 select pg_temp.debe_fallar(format($q$select public.asignar_cliente(%L, timestamptz '2026-09-21 03:00 Atlantic/Canary', (select id from clientes where codigo = 'X2241917S'), '00000000-0000-0000-0000-00000000000b')$q$, (select org from ctx)), 'no hay trabajo');
 -- las horas de un día ya facturado no se reasignan
 select pg_temp.debe_fallar(format($q$select public.asignar_cliente(%L, timestamptz '2026-09-21 13:00 Atlantic/Canary', (select id from clientes where codigo = 'X2241917S'), '00000000-0000-0000-0000-00000000000b')$q$, (select org from ctx)), 'facturadas');
-select pg_temp.debe_fallar(format($q$select public.asignar_cliente(%L, now() - interval '1 min', null)$q$, (select org from ctx)), 'Elige un cliente');
 
 -- ===== 9. Proyectos (0016) =====
 select pg_temp.como('00000000-0000-0000-0000-00000000000a', 'propietario@gofio.test');
@@ -572,6 +571,45 @@ do $$ begin
 end $$;
 reset role;
 set role authenticated;
+
+-- ===== Asignar solo una parte de un tramo y notas de trabajo (0025) =====
+-- un día pasado del empleado sin cliente: 08:00 a 14:00
+reset role;
+select public._insertar_fichaje((select org from ctx), '00000000-0000-0000-0000-00000000000b', 'ENTRADA', null, null, null, null, null,
+  'RESPONSABLE', timestamptz '2026-09-10 08:00 Atlantic/Canary', null, 'prueba', 'APROBADA');
+select public._insertar_fichaje((select org from ctx), '00000000-0000-0000-0000-00000000000b', 'SALIDA', null, null, null, null, null,
+  'RESPONSABLE', timestamptz '2026-09-10 14:00 Atlantic/Canary', null, 'prueba', 'APROBADA');
+set role authenticated;
+select pg_temp.como('00000000-0000-0000-0000-00000000000a', 'propietario@gofio.test');
+do $$ declare v_org uuid := (select org from ctx); b uuid := '00000000-0000-0000-0000-00000000000b';
+  x uuid := (select id from clientes where codigo = 'X2241917S'); r text;
+begin
+  -- de 09:00 a 11:00 al cliente X: se deja «sin asignar» desde las 11:00 y se asigna X desde las 09:00
+  perform public.asignar_cliente(v_org, timestamptz '2026-09-10 11:00 Atlantic/Canary', null, b);
+  perform public.asignar_cliente(v_org, timestamptz '2026-09-10 09:00 Atlantic/Canary', x, b);
+  select string_agg(to_char(t.inicio at time zone 'Atlantic/Canary', 'HH24:MI') || '-' || to_char(t.fin at time zone 'Atlantic/Canary', 'HH24:MI')
+                    || '=' || coalesce((select codigo from clientes where id = t.cliente_id), '-'), ' ' order by t.inicio) into r
+  from public.tramos_jornada(v_org, '2026-09-10', '2026-09-10', b) t where t.tipo = 'TRABAJO';
+  if r <> '08:00-09:00=- 09:00-11:00=X2241917S 11:00-14:00=-' then raise exception 'tramo dividido: %', r; end if;
+  -- la jornada sigue siendo de 6 horas
+  if (select minutos_trabajo from public.resumen_jornada(v_org, '2026-09-10', '2026-09-10', b)) <> 360 then raise exception 'cambió la jornada'; end if;
+  -- el propietario escribe la nota del tramo del empleado
+  insert into notas_tramo (org_id, user_id, inicio, texto, materiales)
+  values (v_org, b, timestamptz '2026-09-10 09:00 Atlantic/Canary', 'Cambio de grifo', '[{"descripcion": "Grifo monomando", "cantidad": 1, "unidad": "ud"}]');
+end $$;
+-- el empleado ve y edita sus notas, pero no escribe las de otra persona
+select pg_temp.como('00000000-0000-0000-0000-00000000000b', 'empleado@gofio.test');
+do $$ begin
+  if (select texto from notas_tramo where inicio = timestamptz '2026-09-10 09:00 Atlantic/Canary') <> 'Cambio de grifo' then raise exception 'el empleado no ve su nota'; end if;
+  update notas_tramo set texto = 'Cambio de grifo y latiguillos' where inicio = timestamptz '2026-09-10 09:00 Atlantic/Canary';
+  if not found then raise exception 'el empleado no edita su nota'; end if;
+end $$;
+select pg_temp.debe_fallar($$insert into notas_tramo (org_id, user_id, inicio, texto) values ((select org from ctx), '00000000-0000-0000-0000-00000000000a', now(), 'x')$$, 'row-level security');
+select pg_temp.debe_fallar($$insert into notas_tramo (org_id, user_id, inicio, materiales) values ((select org from ctx), '00000000-0000-0000-0000-00000000000b', now(), '{}')$$, 'check constraint');
+-- otra empresa no ve las notas
+select pg_temp.como('00000000-0000-0000-0000-00000000000c', 'otra@empresa.test');
+do $$ begin if exists (select 1 from notas_tramo) then raise exception 'fuga de notas'; end if; end $$;
+reset role;
 
 -- un visitante SIN sesión (anon) no puede ejecutar ninguna función
 reset role;

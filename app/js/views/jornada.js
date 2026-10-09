@@ -1,6 +1,6 @@
 import { api } from '../api.js';
 import { h, accion, aviso, dialogo, hora, fecha, hoyISO, sumarDias, posicion, preferencia } from '../ui.js';
-import { estadoActual, accionesPosibles, tramos, totales, fmtMin, fmtReloj, diaLocal, TIPOS } from '../lib/jornada.js';
+import { estadoActual, accionesPosibles, tramos, totales, fmtMin, fmtReloj, diaLocal, TIPOS, momentoLocal, cambiosParaParte, notaDeTramo, resumenNota, instante } from '../lib/jornada.js';
 import { navegarUrl, tieneDestino, direccionCompleta } from '../lib/mapas.js';
 import { editar as editarCliente } from './clientes.js';
 import { editar as editarProyecto } from './proyectos.js';
@@ -29,12 +29,14 @@ export async function vistaJornada(app) {
   clearInterval(reloj);
   const hoy = hoyISO(app.tz);
   const dia = diaVista && diaVista < hoy ? diaVista : hoy;
-  const [clientes, proyectos, fichajes, semana, fichajesDia] = await Promise.all([
+  const [clientes, proyectos, fichajes, semana, fichajesDia, notas, productos] = await Promise.all([
     api.clientes(app.org),
     api.proyectos(app.org).catch(() => []),
     api.fichajes(app.org, { desde: sumarDias(hoy, -1), hasta: hoy, user: app.e.user_id }),
     api.resumen(app.org, sumarDias(hoy, -6), hoy, app.e.user_id).catch(() => []),
     dia === hoy ? null : api.fichajes(app.org, { desde: dia, hasta: dia, user: app.e.user_id }),
+    api.notasTramo(app.org, dia, dia, app.e.user_id).catch(() => []),
+    api.productos(app.org).catch(() => []),   // solo quien ve facturación; si no, materiales a mano
   ]);
   const cli = id => clientes.find(c => c.id === id);
   const pro = id => proyectos.find(p => p.id === id);
@@ -70,7 +72,8 @@ export async function vistaJornada(app) {
 
   // ---------- línea de tiempo del día (hoy o uno anterior) ----------
   const delDia = (fichajesDia || fichajes).filter(f => diaLocal(Date.parse(f.momento_declarado || f.momento), app.tz) === dia);
-  const trs = tramos(delDia, dia === hoy ? Date.now() : null);
+  const trs = tramos(delDia, dia === hoy ? Date.now() : null).map(t => ({ ...t, user_id: app.e.user_id, dia }));
+  const recargar = () => window.dispatchEvent(new HashChangeEvent('hashchange'));
   const tot = totales(trs);
   const irA = d => { diaVista = d; window.dispatchEvent(new HashChangeEvent('hashchange')); };
   const lineaTiempo = h('div.tarjeta',
@@ -83,8 +86,11 @@ export async function vistaJornada(app) {
     trs.length ? h('ol.linea-tiempo', trs.map(t => h('li.' + t.tipo.toLowerCase(),
       h('span.horas', hora(t.inicio, app.tz) + ' – ' + (t.fin ? hora(t.fin, app.tz) : 'ahora')),
       h('span.que', t.tipo === 'TRABAJO' ? (enQue(t.cliente_id, t.proyecto_id) || 'Sin asignar') : t.tipo === 'PAUSA' ? 'Pausa' : '🚗 Hacia ' + (cli(t.cliente_id)?.nombre || 'destino'),
-        t.tipo === 'TRABAJO' ? h('button.btn.enlace.asignar', { type: 'button', onclick: e => asignarTramo(app, clientes, proyectos, t, e.currentTarget) },
-          t.cliente_id || t.proyecto_id ? 'Cambiar' : 'Asignar cliente o proyecto') : null),
+        t.tipo === 'TRABAJO' ? h('button.btn.enlace.asignar', { type: 'button', onclick: async e => { if (await asignarTramo(app, clientes, proyectos, t, e.currentTarget)) recargar(); } },
+          t.cliente_id || t.proyecto_id ? 'Cambiar' : 'Asignar cliente o proyecto') : null,
+        t.tipo === 'TRABAJO' ? h('button.btn.enlace.asignar', { type: 'button', onclick: async () => { if (await editarNotaTramo(app, t, notaDeTramo(notas, t), productos)) recargar(); } },
+          notaDeTramo(notas, t) ? '📝 Nota' : '📝 Añadir nota') : null,
+        t.tipo === 'TRABAJO' && notaDeTramo(notas, t) ? h('small.nota-tramo', resumenNota(notaDeTramo(notas, t))) : null),
       h('span.dur', fmtMin(t.minutos) + (t.km ? ` · ${t.km.toLocaleString('es-ES')} km` : ''))))) : h('p.vacio', dia === hoy ? 'Todavía no has fichado hoy.' : 'Sin fichajes este día.'),
     trs.length ? h('div.totales',
       h('div', h('small', 'Trabajo'), h('strong', fmtMin(tot.trabajo))),
@@ -165,7 +171,7 @@ function botonFichar(app, tipo, clientes, proyectos, st) {
  * Selector de cliente (y de proyecto, si se pasan proyectos) con búsqueda.
  * Devuelve {cliente_id, proyecto_id} o null si se cancela.
  */
-export async function elegirCliente(app, clientes, tipo, { titulo, proyectos = null } = {}) {
+export async function elegirCliente(app, clientes, tipo, { titulo, proyectos = null, extra = null } = {}) {
   const conProyectos = !!proyectos;
   const buscar = h('input', { type: 'search', placeholder: conProyectos ? 'Buscar proyecto o cliente…' : 'Buscar cliente…', 'aria-label': 'Buscar' });
   let elegido = null;   // 'c:<id>' o 'p:<id>'
@@ -187,9 +193,9 @@ export async function elegirCliente(app, clientes, tipo, { titulo, proyectos = n
     const clis = activos.filter(c => (c.nombre + ' ' + (c.localidad || '') + ' ' + (c.municipio || '')).toLowerCase().includes(q)).slice(0, 50);
     const vacio = !activos.length && !(proyectos || []).some(p => p.activo !== false);
     lista.replaceChildren(...(pros.length || clis.length ? [
-      pros.length ? h('small.grupo', 'Proyectos') : null,
+      pros.length ? h('small.grupo', 'Proyectos') : '',
       ...pros.map(p => opcion('p:' + p.id, '📁 ' + p.nombre, nombreCli(p.cliente_id) || (p.tipo === 'AJENO' ? 'Proyecto ajeno' : 'Proyecto propio'))),
-      pros.length && clis.length ? h('small.grupo', 'Clientes') : null,
+      pros.length && clis.length ? h('small.grupo', 'Clientes') : '',
       ...clis.map(c => opcion('c:' + c.id, c.nombre, direccionCompleta(c) || 'sin dirección')),
     ] : [h('p.vacio', !vacio ? 'Nada coincide con la búsqueda.'
           : puedeCrear ? 'Aún no hay clientes. Crea el primero aquí abajo.' : 'Aún no hay clientes. Pide a tu responsable que los dé de alta.')]));
@@ -212,7 +218,7 @@ export async function elegirCliente(app, clientes, tipo, { titulo, proyectos = n
     ? { ENTRADA: '¿En qué empiezas?', CAMBIO_CLIENTE: '¿En qué trabajas ahora?' }
     : { ENTRADA: '¿Para qué cliente empiezas?', CAMBIO_CLIENTE: '¿Para qué cliente trabajas ahora?', DESPLAZAMIENTO_INICIO: '¿A dónde vas?' };
   const queElegir = conProyectos ? 'un proyecto o un cliente' : 'un cliente';
-  const ok = await dialogo(titulo || titulos[tipo], [buscar, lista, h('div.fila-botones', nuevoPro, nuevoCli), tipo === 'DESPLAZAMIENTO_INICIO' ? abrirNav : null], [
+  const ok = await dialogo(titulo || titulos[tipo], [extra, buscar, lista, h('div.fila-botones', nuevoPro, nuevoCli), tipo === 'DESPLAZAMIENTO_INICIO' ? abrirNav : null], [
     { texto: 'Cancelar', valor: false },
     tipo === 'ENTRADA' ? { texto: conProyectos ? 'Sin asignar' : 'Sin cliente', valor: 'sin' } : null,
     { texto: tipo === 'DESPLAZAMIENTO_INICIO' ? 'Salir' : 'Aceptar', clase: 'primario', valor: () => {
@@ -235,16 +241,75 @@ export async function elegirCliente(app, clientes, tipo, { titulo, proyectos = n
   return { cliente_id: id, proyecto_id: null };
 }
 
-/** Asigna (o cambia) el cliente o proyecto de un tramo de trabajo ya fichado, desde su inicio. */
-async function asignarTramo(app, clientes, proyectos, t, btn) {
-  const desde = hora(t.inicio, app.tz), hasta = t.fin ? hora(t.fin, app.tz) : 'ahora';
-  const r = await elegirCliente(app, clientes, 'ASIGNAR', { titulo: `¿En qué trabajaste de ${desde} a ${hasta}?`, proyectos });
-  if (!r || (!r.cliente_id && !r.proyecto_id)) return;
-  if (r.cliente_id === t.cliente_id && (r.proyecto_id || null) === (t.proyecto_id || null)) return;
-  const res = await accion(btn, () => api.asignarCliente(app.org, new Date(t.inicio).toISOString(), r.proyecto_id ? null : r.cliente_id, r.proyecto_id));
-  if (!res) return;
-  aviso(res?.estado === 'PENDIENTE' ? 'Asignación enviada; la aprobará tu responsable' : 'Asignado', 'ok');
-  window.dispatchEvent(new HashChangeEvent('hashchange'));
+/**
+ * Asigna (o cambia) el cliente o proyecto de un tramo de trabajo ya fichado: entero o solo una parte (de tal hora a tal hora).
+ * Las horas fichadas no cambian: se registran cambios de cliente a posteriori. Devuelve true si se asignó algo.
+ * opciones: { user } para asignar el tramo de otra persona (responsables), { titulo } para el diálogo.
+ */
+export async function asignarTramo(app, clientes, proyectos, t, btn, { user = null, titulo = null } = {}) {
+  const ini = instante(t.inicio), fin = t.fin ? instante(t.fin) : Date.now();
+  const dia = t.dia || diaLocal(ini, app.tz);
+  const hIni = hora(ini, app.tz), hFin = hora(fin, app.tz);
+  const desde = h('input', { type: 'time', value: hIni, 'aria-label': 'Desde' });
+  const hasta = h('input', { type: 'time', value: hFin, 'aria-label': 'Hasta' });
+  const rango = h('div.rango-tramo',
+    h('small.ayuda', 'Parte del tramo que asignas (por defecto, entero):'),
+    h('div.fila-botones', h('label', 'De ', desde), h('label', ' a ', hasta)));
+  const r = await elegirCliente(app, clientes, 'ASIGNAR', { proyectos, extra: rango,
+    titulo: titulo || `¿En qué trabajaste de ${hIni} a ${t.fin ? hFin : 'ahora'}?` });
+  if (!r || (!r.cliente_id && !r.proyecto_id)) return false;
+  // Sin tocar las horas, se usa el instante exacto del tramo (los fichajes llevan segundos)
+  const d = desde.value === hIni ? ini : momentoLocal(dia, desde.value, app.tz);
+  const a = hasta.value === hFin ? fin : momentoLocal(dia, hasta.value, app.tz);
+  const entero = d === ini && a === fin;
+  if (entero && r.cliente_id === t.cliente_id && (r.proyecto_id || null) === (t.proyecto_id || null)) return false;
+  const res = await accion(btn, async () => {
+    const cambios = cambiosParaParte(t, d, a, r);
+    let ultimo;
+    for (const c of cambios) ultimo = await api.asignarCliente(app.org, new Date(c.momento).toISOString(), c.proyecto_id ? null : c.cliente_id, c.proyecto_id, user);
+    return ultimo;
+  });
+  if (!res) return false;
+  aviso(res?.estado === 'PENDIENTE' ? 'Asignación enviada; la aprobará tu responsable' : entero ? 'Asignado' : `Asignado de ${desde.value} a ${hasta.value}`, 'ok');
+  return true;
+}
+
+/** Nota de un tramo de trabajo: tareas realizadas y materiales usados. Devuelve true si se guardó. */
+export async function editarNotaTramo(app, t, nota, productos = []) {
+  const texto = h('textarea', { rows: 3, placeholder: 'Qué se hizo: tareas, incidencias…', 'aria-label': 'Tareas realizadas' }, nota?.texto || '');
+  texto.value = nota?.texto || '';
+  const idLista = 'mat-productos';
+  const sugerencias = h('datalist', { id: idLista }, productos.map(p => h('option', { value: p.descripcion || p.codigo }, p.codigo)));
+  const filas = h('div.materiales');
+  const fila = (m = {}) => {
+    const desc = h('input', { list: idLista, value: m.descripcion || '', placeholder: 'Material', 'aria-label': 'Material' });
+    const cant = h('input', { type: 'number', step: 'any', min: 0, value: m.cantidad ?? '', placeholder: 'Cant.', 'aria-label': 'Cantidad' });
+    const ud = h('input', { value: m.unidad || '', placeholder: 'ud', 'aria-label': 'Unidad', maxLength: 10 });
+    const el = h('div.material', desc, cant, ud, h('button.btn.mini', { type: 'button', 'aria-label': 'Quitar', onclick: () => el.remove() }, '✕'));
+    // al elegir un producto del catálogo se pone su unidad
+    desc.addEventListener('change', () => { const p = productos.find(x => (x.descripcion || x.codigo) === desc.value); if (p && !ud.value) ud.value = p.unidad || ''; });
+    el.leer = () => {
+      const p = productos.find(x => (x.descripcion || x.codigo) === desc.value.trim());
+      return desc.value.trim() ? { descripcion: desc.value.trim(), cantidad: cant.value === '' ? null : Number(cant.value), unidad: ud.value.trim() || null, producto_id: p?.id || null } : null;
+    };
+    filas.append(el);
+  };
+  (nota?.materiales?.length ? nota.materiales : [{}]).forEach(fila);
+  const desdeHasta = `${hora(t.inicio, app.tz)} – ${t.fin ? hora(t.fin, app.tz) : 'ahora'}`;
+  const ok = await dialogo(`Nota del tramo ${desdeHasta}`, [
+    h('label', 'Tareas realizadas'), texto,
+    h('label', 'Materiales usados'), filas, sugerencias,
+    h('button.btn.enlace', { type: 'button', onclick: () => fila() }, '+ Añadir material'),
+  ], [
+    { texto: 'Cancelar', valor: false },
+    { texto: 'Guardar', clase: 'primario', valor: async () => {
+      const materiales = [...filas.children].map(el => el.leer()).filter(Boolean);
+      const r = await accion(null, async () => { await api.guardarNotaTramo(app.org, { user_id: t.user_id, inicio: new Date(t.inicio).toISOString(), texto: texto.value.trim(), materiales }); return true; });
+      return r ? true : undefined;
+    } },
+  ]);
+  if (ok) aviso('Nota guardada', 'ok');
+  return !!ok;
 }
 
 async function ofrecerGuardarUbicacion(c, pos) {
