@@ -3,7 +3,7 @@
 import { api } from '../api.js';
 import { h, montar, accion, eur, fecha, hoyISO, sumarDias, preferencia } from '../ui.js';
 import { fmtMin } from '../lib/jornada.js';
-import { calcular, irpfCliente } from '../lib/factura.js';
+import { calcular, irpfCliente, esManoDeObra, esDesplazamiento } from '../lib/factura.js';
 import { vistaFactura } from './factura.js';
 import { vistaBorrador } from './borrador.js';
 import { vistaProductos, vistaProveedores } from './maestros.js';
@@ -61,8 +61,8 @@ async function facturarHoras(app, clienteId) {
   const hasta = h('input', { type: 'date', value: hoy, 'aria-label': 'Hasta' });
   // Producto del catálogo para cada línea: lo elige quien factura (se recuerda la última elección).
   // Sin producto, la línea sale como «Horas de trabajo» / «Desplazamiento» genéricos.
-  const candidatosHora = productos.filter(p => p.unidad === 'h');
-  const candidatosDesp = productos.filter(p => /TRANS|DESPL/i.test(p.codigo));
+  const candidatosHora = productos.filter(esManoDeObra);
+  const candidatosDesp = productos.filter(esDesplazamiento);
   const selectorProducto = (lista, clave, generico) => {
     const guardado = preferencia(clave);
     return h('select', { 'aria-label': 'Producto' },

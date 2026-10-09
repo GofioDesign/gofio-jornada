@@ -51,6 +51,11 @@ export function categoriaDeFamilia(familia) {
 }
 export const categoriaDe = l => CATEGORIAS.includes(l?.categoria) ? l.categoria : categoriaDeFamilia(l?.familia);
 
+// Productos que se ofrecen al facturar horas fichadas: los de mano de obra (por categoría o familia) y los que se cobran por horas.
+export const esManoDeObra = p => categoriaDe(p) === 'MANO DE OBRA' || /^(h|hr|hrs|horas?)$/i.test(String(p?.unidad || '').trim());
+// Y para los desplazamientos: los de transporte o con TRANS/DESPL en el código
+export const esDesplazamiento = p => categoriaDe(p) === 'TRANSPORTE' || /TRANS|DESPL/i.test(String(p?.codigo || ''));
+
 // Líneas calculadas ({ base, igic_pct, categoria | familia, ... }) agrupadas por categoría, con subtotal en céntimos exactos.
 export function porCategoria(lineas = []) {
   return CATEGORIAS.map(categoria => {
