@@ -110,7 +110,24 @@ export async function vistaJornada(app) {
     semana.length ? h('p.ayuda', 'Total semana: ', h('strong', fmtMin(semana.reduce((s, r) => s + r.minutos_trabajo, 0)))) : null);
 
   raiz.append(tarjeta, lineaTiempo, semanaEl);
+  if (app.nfc) { const etiqueta = app.nfc; app.nfc = null; queueMicrotask(() => preguntarNfc(raiz, st, etiqueta)); }
   return raiz;
+}
+
+// Etiqueta NFC (p. ej. en el soporte del coche): al acercar el móvil se abre la app con ?nfc=… y pregunta qué fichar.
+// Las opciones son los mismos botones de la tarjeta de estado; elegir una es como pulsarlo.
+async function preguntarNfc(raiz, st, etiqueta) {
+  const botones = [...raiz.querySelectorAll('.botones-fichar button[data-tipo]')]
+    .sort((a, b) => (b.dataset.tipo === 'SALIDA') - (a.dataset.tipo === 'SALIDA'));
+  if (!botones.length) return;
+  const titulo = st.estado === 'FUERA' ? '¿Empiezas la jornada?' : st.desplazamiento ? '¿Has llegado?' : '¿Has terminado?';
+  const tipo = await dialogo(titulo, h('p.ayuda', `Etiqueta «${etiqueta}». Elige qué quieres fichar.`),
+    [...botones.map(b => ({ texto: b.textContent, valor: b.dataset.tipo, clase: b.dataset.tipo === botones[0].dataset.tipo ? 'primario' : '' })),
+      { texto: st.estado === 'FUERA' ? 'Ahora no' : 'Sigo trabajando', valor: null }]);
+  const btn = tipo && raiz.querySelector(`.botones-fichar button[data-tipo="${tipo}"]`);
+  if (!btn) return;
+  if (tipo === 'SALIDA') btn.dataset.confirmado = '1';   // ya lo ha confirmado en el diálogo
+  btn.click();
 }
 
 function botonFichar(app, tipo, clientes, proyectos, st) {
@@ -131,7 +148,8 @@ function botonFichar(app, tipo, clientes, proyectos, st) {
         ({ cliente_id, proyecto_id } = r);
         if (tipo === 'CAMBIO_CLIENTE' && !cliente_id && !proyecto_id) return aviso('Elige un cliente o un proyecto', 'error');
       }
-      if (tipo === 'SALIDA' && !confirm('¿Finalizar la jornada de hoy?')) return;
+      if (tipo === 'SALIDA' && !btn.dataset.confirmado && !confirm('¿Finalizar la jornada de hoy?')) return;
+      delete btn.dataset.confirmado;
       await accion(btn, async () => {
         const pos = await gps(app);
         await api.fichar(app.org, tipo, { ...pos, cliente_id, proyecto_id });
