@@ -1,5 +1,5 @@
 -- =====================================================================
--- GOFIO · 0027 · Avisos de seguridad del linter de Supabase
+-- GOFIO · 0028 · Avisos de seguridad del linter de Supabase
 --  1. search_path fijo en las funciones que no lo tenían (aviso «Function Search Path Mutable»).
 --     Sin él, quien cree un objeto con el mismo nombre en otro esquema podría colarlo
 --     dentro de la función. Todas las demás ya llevan «set search_path = public».

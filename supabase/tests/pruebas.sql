@@ -639,7 +639,7 @@ do $$ begin
   end if;
 end $$;
 
--- toda función de public lleva search_path fijo (linter de Supabase, 0027)
+-- toda función de public lleva search_path fijo (linter de Supabase, 0028)
 do $$ declare v text; begin
   select string_agg(p.proname, ', ') into v from pg_proc p join pg_namespace n on n.oid = p.pronamespace
    where n.nspname = 'public' and p.prokind = 'f'
