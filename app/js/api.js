@@ -17,6 +17,18 @@ async function cliente() {
   return sb;
 }
 
+// Correo de acceso para otra persona (al invitarla): cliente aparte, sin sesión, para no tocar la de quien invita.
+// Flujo «implicit» para que el enlace funcione en el dispositivo de la persona invitada.
+let sbAviso = null;
+async function clienteAviso() {
+  if (!sbAviso) {
+    const { createClient } = await import('@supabase/supabase-js');
+    sbAviso = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY,
+      { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, flowType: 'implicit', storageKey: 'gofio-aviso' } });
+  }
+  return sbAviso;
+}
+
 function ok({ data, error }) {
   if (error) {
     const e = new Error(traducir(error.message)); e.limitePlan = error.hint === 'LIMITE_PLAN'; throw e;
@@ -55,6 +67,13 @@ const supa = {
   async esSuperadmin() { const c = await cliente(); return ok(await c.rpc('es_superadmin')); },
   async saEmpresas() { const c = await cliente(); return ok(await c.rpc('sa_empresas')); },
   async saCrearEmpresa(x) { const c = await cliente(); return ok(await c.rpc('sa_crear_empresa', { p_nombre: x.nombre, p_email_propietario: x.email, p_nif: x.nif || null, p_plan: x.plan, p_facturacion: !!x.facturacion })); },
+  async saInvitarPropietario(org, email) { const c = await cliente(); return ok(await c.rpc('sa_invitar_propietario', { p_org: org, p_email: email })); },
+  async saAnularInvitacion(org) { const c = await cliente(); return ok(await c.rpc('sa_anular_invitacion', { p_org: org })); },
+  // Manda a la persona invitada el correo de acceso (plantilla «Magic Link» de Supabase)
+  async avisarInvitado(email) {
+    const c = await clienteAviso();
+    return ok(await c.auth.signInWithOtp({ email: String(email).trim().toLowerCase(), options: { shouldCreateUser: true, emailRedirectTo: location.origin + location.pathname } }));
+  },
   async saActualizarEmpresa(id, x) { const c = await cliente(); return ok(await c.rpc('sa_actualizar_empresa', { p_org: id, p_plan: x.plan, p_plan_hasta: x.plan_hasta || null, p_facturacion: !!x.facturacion })); },
   async aceptarInvitacion(token, nombre) { const c = await cliente(); return ok(await c.rpc('aceptar_invitacion', { p_token: token, p_nombre: nombre || null })); },
   async guardarEmpresa(org, datos) { const c = await cliente(); return ok(await c.from('organizaciones').update(datos).eq('id', org).select().single()); },
@@ -258,6 +277,14 @@ const demo = {
     d.invitaciones.push({ id: uid(), org_id: id, email, rol: 'propietario', token: uid(), creada_en: new Date().toISOString(), aceptada_en: null });
     guardar(d); return id;
   },
+  async saInvitarPropietario(org, email) {
+    email = String(email || '').trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error('Escribe un email válido para el propietario');
+    const d = db(); d.invitaciones = d.invitaciones.filter(i => !(i.org_id === org && i.rol === 'propietario' && !i.aceptada_en));
+    d.invitaciones.push({ id: uid(), org_id: org, email, rol: 'propietario', token: uid(), creada_en: new Date().toISOString(), aceptada_en: null }); guardar(d);
+  },
+  async saAnularInvitacion(org) { const d = db(); d.invitaciones = d.invitaciones.filter(i => !(i.org_id === org && i.rol === 'propietario' && !i.aceptada_en)); guardar(d); },
+  async avisarInvitado() { },   // en la demo no se envían correos
   async saActualizarEmpresa(id, x) {
     const d = db(); const o = d.orgs.find(y => y.id === id);
     o.usa_facturacion = !x.facturacion ? false : !o.tester_facturacion ? true : o.usa_facturacion;

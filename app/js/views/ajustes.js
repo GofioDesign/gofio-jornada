@@ -1,6 +1,6 @@
 import { api, DEMO } from '../api.js';
 import { CONFIG } from '../../config.js';
-import { h, accion, aviso, preferencia, ROLES, puedeGestionar, hoyISO, dialogo, sumarDias } from '../ui.js';
+import { h, accion, aviso, preferencia, ROLES, puedeGestionar, hoyISO, dialogo, sumarDias, fecha } from '../ui.js';
 import { descargar } from '../lib/csv.js';
 import { plantillasObs } from '../lib/factura.js';
 
@@ -14,6 +14,10 @@ export async function vistaAjustes(app, seccion) {
     if (app.facturacion) bloques.push(observaciones(app));
     if (app.rol === 'propietario') bloques.push(await accesoApi(app));
   }
+  if (app.superadmin) bloques.unshift(h('div.tarjeta.destacada', { id: 'superadmin' },
+    h('h2', 'Superadministración'),
+    h('p.ayuda', 'Gestión de la plataforma Gofio Jornada: alta de unidades, planes y acceso a facturación. Es aparte de tu empresa.'),
+    h('a.btn.primario', { href: '#/sa' }, 'Entrar en modo superadmin')));
   const raiz = h('section.pila', h('h1', 'Ajustes'), bloques,
     h('p.ayuda.pie', `Gofio Jornada ${CONFIG.VERSION}${DEMO ? ' · modo demo' : ''} · ${CONFIG.SOPORTE_EMAIL}`));
   if (seccion) queueMicrotask(() => raiz.querySelector('#' + seccion)?.scrollIntoView({ behavior: 'smooth' }));
@@ -44,6 +48,12 @@ function etiquetasNfc() {
     h('p.ayuda', 'En iPhone aparece un aviso al acercarlo: tócalo para abrir la app. En Android se abre directamente.'));
 }
 
+// Correo de acceso a la persona invitada. Si no sale (p. ej. Supabase sin SMTP propio), la invitación sigue valiendo.
+export async function avisarInvitado(email) {
+  try { await api.avisarInvitado(email); return true; }
+  catch (e) { aviso(`La invitación está creada, pero no se pudo enviar el correo (${e.message}). Dile a ${email} que entre en la app con ese email.`, 'error'); return false; }
+}
+
 function usuarios(app, miembros, invitaciones) {
   const max = app.e.plan?.max_usuarios;
   const activos = miembros.filter(m => m.activo).length;
@@ -55,7 +65,7 @@ function usuarios(app, miembros, invitaciones) {
       ev.preventDefault();
       accion(form.querySelector('button'), async () => {
         await api.invitar(app.org, email.value.trim(), rol.value, nombre.value.trim());
-        aviso(`Invitación creada. Dile a ${email.value.trim()} que entre en la app con ese email.`, 'ok');
+        if (await avisarInvitado(email.value.trim())) aviso(`Invitación enviada a ${email.value.trim()}: le llega un correo con el enlace para entrar.`, 'ok');
         window.dispatchEvent(new HashChangeEvent('hashchange'));
       });
     },
@@ -77,8 +87,11 @@ function usuarios(app, miembros, invitaciones) {
           catch (err) { ev.target.checked = !ev.target.checked; throw err; }
         }),
       }), ' activo')))))),
-    invitaciones.length ? [h('h3', 'Invitaciones pendientes'), invitaciones.map(i => h('div.fila', h('span', `${i.email} · ${ROLES[i.rol]}`),
-      h('button.btn.enlace', { onclick: ev => accion(ev.currentTarget, async () => { await api.borrarInvitacion(i.id); window.dispatchEvent(new HashChangeEvent('hashchange')); }) }, 'Anular')))] : null,
+    invitaciones.length ? [h('h3', 'Invitaciones pendientes'), invitaciones.map(i => h('div.fila',
+      h('span', `${i.email} · ${ROLES[i.rol]}`, h('small.ayuda', ` · ${fecha(String(i.creada_en).slice(0, 10))}`)),
+      h('div.fila-botones',
+        h('button.btn.mini', { onclick: ev => accion(ev.currentTarget, async () => { if (await avisarInvitado(i.email)) aviso(`Correo reenviado a ${i.email}`, 'ok'); }) }, 'Reenviar correo'),
+        h('button.btn.mini', { onclick: ev => { if (confirm(`¿Eliminar la invitación de ${i.email}? Ya no podrá unirse con ella.`)) accion(ev.currentTarget, async () => { await api.borrarInvitacion(i.id); aviso('Invitación eliminada', 'ok'); window.dispatchEvent(new HashChangeEvent('hashchange')); }); } }, 'Eliminar'))))] : null,
     form);
 }
 

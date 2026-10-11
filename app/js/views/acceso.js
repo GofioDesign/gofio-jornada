@@ -53,5 +53,6 @@ export async function vistaAlta(app) {
         h('div', h('strong', i.org_nombre), h('div.ayuda', 'como ' + i.rol)),
         h('button.btn.primario', { onclick: e => accion(e.currentTarget, async () => { await api.aceptarInvitacion(i.token, tuNombre.value.trim() || null); await app.recargar(); }) }, 'Unirme')))) : null,
     form,
+    app.superadmin ? h('a.btn', { href: '#/sa' }, 'Entrar en modo superadmin') : null,
     h('button.btn.enlace', { onclick: async () => { await api.salir(); location.reload(); } }, 'Salir'));
 }
