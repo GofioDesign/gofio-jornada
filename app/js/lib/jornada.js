@@ -181,3 +181,12 @@ export function cambiosParaParte(t, desde, hasta, nuevo) {
 // Nota de un tramo (misma persona y misma hora de inicio)
 export const notaDeTramo = (notas, t) => notas.find(n => n.user_id === t.user_id && Date.parse(n.inicio) === instante(t.inicio)) || null;
 export const resumenNota = n => !n ? '' : [n.texto?.trim(), n.materiales?.length ? n.materiales.map(m => `${m.cantidad ?? ''} ${m.unidad || ''} ${m.descripcion}`.replace(/\s+/g, ' ').trim()).join(', ') : null].filter(Boolean).join(' · ');
+
+/** Hasta cuándo hay que conservar los datos de una unidad dada de baja (como plazo_conservacion en SQL):
+ *  registro de jornada 4 años desde el último fichaje; facturas y gastos 6 años desde el cierre de su ejercicio. */
+export function plazoConservacion({ ultimoFichaje, ultimaFactura, hoy }) {
+  const fechas = [hoy];
+  if (ultimoFichaje) { const d = new Date(instante(ultimoFichaje)); d.setUTCFullYear(d.getUTCFullYear() + 4); fechas.push(d.toISOString().slice(0, 10)); }
+  if (ultimaFactura) fechas.push(`${Number(String(ultimaFactura).slice(0, 4)) + 7}-01-01`);
+  return fechas.sort().at(-1);
+}

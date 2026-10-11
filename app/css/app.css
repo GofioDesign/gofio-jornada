@@ -334,3 +334,6 @@ body.modo-sa .barra { background: #3b2a55; }
 .checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: .25rem .75rem; }
 .checks label { display: flex; align-items: center; gap: .4rem; font-weight: normal; }
 .checks input { width: auto; }
+.sa-baja { margin-top: .75rem; padding-top: .5rem; border-top: 1px dashed var(--borde); }
+.etiqueta.baja { background: #fde2df; color: #8a1c14; }
+.item.sa-unidad { display: block; }
