@@ -4,6 +4,8 @@ import { estadoActual, accionesPosibles, tramos, totales, fmtMin, fmtReloj, diaL
 import { navegarUrl, tieneDestino, direccionCompleta } from '../lib/mapas.js';
 import { editar as editarCliente } from './clientes.js';
 import { editar as editarProyecto } from './proyectos.js';
+import { avisoFirma } from './firma.js';
+import { mesAnterior } from '../lib/firma.js';
 
 const puedeCrearClientes = rol => ['propietario', 'admin', 'responsable'].includes(rol);
 
@@ -29,7 +31,7 @@ export async function vistaJornada(app) {
   clearInterval(reloj);
   const hoy = hoyISO(app.tz);
   const dia = diaVista && diaVista < hoy ? diaVista : hoy;
-  const [clientes, proyectos, fichajes, semana, fichajesDia, notas, productos] = await Promise.all([
+  const [clientes, proyectos, fichajes, semana, fichajesDia, notas, productos, firmaMes] = await Promise.all([
     api.clientes(app.org),
     api.proyectos(app.org).catch(() => []),
     api.fichajes(app.org, { desde: sumarDias(hoy, -1), hasta: hoy, user: app.e.user_id }),
@@ -37,6 +39,7 @@ export async function vistaJornada(app) {
     dia === hoy ? null : api.fichajes(app.org, { desde: dia, hasta: dia, user: app.e.user_id }),
     api.notasTramo(app.org, dia, dia, app.e.user_id).catch(() => []),
     api.productos(app.org).catch(() => []),   // solo quien ve facturación; si no, materiales a mano
+    api.registroParaFirmar(app.org, mesAnterior(hoy)).catch(() => null),   // ¿falta firmar el mes pasado?
   ]);
   const cli = id => clientes.find(c => c.id === id);
   const pro = id => proyectos.find(p => p.id === id);
@@ -115,8 +118,9 @@ export async function vistaJornada(app) {
         h('td', fmtMin(r.minutos_desplazamiento)))))) : h('p.vacio', 'Sin registros esta semana.'),
     semana.length ? h('p.ayuda', 'Total semana: ', h('strong', fmtMin(semana.reduce((s, r) => s + r.minutos_trabajo, 0)))) : null);
 
-  raiz.append(tarjeta, lineaTiempo, semanaEl);
+  raiz.append(...[tarjeta, avisoFirma(app, firmaMes), lineaTiempo, semanaEl].filter(Boolean));
   if (app.nfc) { const etiqueta = app.nfc; app.nfc = null; queueMicrotask(() => preguntarNfc(raiz, st, etiqueta)); }
+  if (app.qr) { const token = app.qr; app.qr = null; queueMicrotask(() => preguntarQr(app, st, token, enQue)); }
   return raiz;
 }
 
@@ -134,6 +138,36 @@ async function preguntarNfc(raiz, st, etiqueta) {
   if (!btn) return;
   if (tipo === 'SALIDA') btn.dataset.confirmado = '1';   // ya lo ha confirmado en el diálogo
   btn.click();
+}
+
+const AVISOS = { ENTRADA: 'Jornada iniciada', PAUSA: 'Pausa registrada', REANUDAR: 'De vuelta al trabajo', SALIDA: 'Jornada finalizada', DESPLAZAMIENTO_INICIO: 'Desplazamiento iniciado', DESPLAZAMIENTO_FIN: 'Llegada registrada', CAMBIO_CLIENTE: 'Cambio registrado' };
+
+// Código QR de un punto de fichaje (taller, local, obra): al escanearlo se abre la app con ?qr=… y pregunta qué fichar.
+// El fichaje queda marcado con el punto y, al empezar, toma su cliente o proyecto.
+async function preguntarQr(app, st, token, enQue) {
+  let p;
+  try { p = await api.puntoQr(token); } catch (e) { return aviso(e.message, 'error'); }
+  // El código es de otra de mis empresas: se cambia a esa y se vuelve a preguntar
+  if (p.org_id !== app.org && app.empresas.some(x => x.id === p.org_id)) {
+    preferencia('org', p.org_id); app.org = p.org_id; app.qr = token;
+    return window.dispatchEvent(new HashChangeEvent('hashchange'));
+  }
+  const donde = enQue(p.cliente_id, p.proyecto_id);
+  const otroSitio = p.proyecto_id ? p.proyecto_id !== st.proyecto_id : p.cliente_id && p.cliente_id !== st.cliente_id;
+  const opciones = st.estado === 'FUERA' ? [['ENTRADA', 'Iniciar jornada', 'primario']]
+    : st.desplazamiento ? [['DESPLAZAMIENTO_FIN', '📍 He llegado', 'primario'], ['SALIDA', 'Finalizar jornada', 'peligro']]
+    : st.estado === 'PAUSA' ? [['REANUDAR', 'Reanudar', 'primario'], ['SALIDA', 'Finalizar jornada', 'peligro']]
+    : [['SALIDA', 'Finalizar jornada', 'peligro'], ['PAUSA', 'Pausa', ''], otroSitio ? ['CAMBIO_CLIENTE', 'Pasar a ' + donde, ''] : null].filter(Boolean);
+  const tipo = await dialogo('📷 ' + p.nombre, h('p.ayuda', donde ? `Este código ficha en ${donde}.` : 'Elige qué quieres fichar.'),
+    [...opciones.map(([valor, texto, clase]) => ({ texto, valor, clase })), { texto: 'Cancelar', valor: null }]);
+  if (!tipo) return;
+  aviso('Fichando…');
+  await accion(null, async () => {
+    const pos = await gps(app);
+    await api.fichar(app.org, tipo, { ...pos, qr: token });
+    aviso(`${AVISOS[tipo]} · ${p.nombre}`, 'ok');
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+  });
 }
 
 function botonFichar(app, tipo, clientes, proyectos, st) {
@@ -160,7 +194,7 @@ function botonFichar(app, tipo, clientes, proyectos, st) {
         const pos = await gps(app);
         await api.fichar(app.org, tipo, { ...pos, cliente_id, proyecto_id });
         if (tipo === 'DESPLAZAMIENTO_FIN' && st.desplazamiento?.cliente_id && pos.lat) ofrecerGuardarUbicacion(clientes.find(c => c.id === st.desplazamiento.cliente_id), pos);
-        aviso({ ENTRADA: 'Jornada iniciada', PAUSA: 'Pausa registrada', REANUDAR: 'De vuelta al trabajo', SALIDA: 'Jornada finalizada', DESPLAZAMIENTO_INICIO: 'Desplazamiento iniciado', DESPLAZAMIENTO_FIN: 'Llegada registrada', CAMBIO_CLIENTE: 'Cambio registrado' }[tipo], 'ok');
+        aviso(AVISOS[tipo], 'ok');
         location.hash === '#/' || location.hash === '' ? window.dispatchEvent(new HashChangeEvent('hashchange')) : (location.hash = '#/');
       });
     },

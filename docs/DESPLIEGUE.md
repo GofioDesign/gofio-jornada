@@ -57,6 +57,18 @@ update planes set max_usuarios = 3 where id = 'gratis';
 ```
 Cuando vence `plan_hasta`, la empresa vuelve a tener los límites del plan gratis. **Sus datos no se tocan.**
 
-## 6. Actualizar a todos los clientes
+## 6. Fichar con QR y firmar el registro (migración 0030)
+- **Códigos QR**: no hace falta configurar nada. Se crean en Ajustes ▸ *Códigos QR para fichar* (propietario, administrador o responsable) y se imprimen desde ahí.
+- **Firma con código por correo**: usa la plantilla «Magic Link» de Supabase, que ya lleva `{{ .Token }}` (paso 2.5). La persona escribe las 6 cifras; el enlace no hace falta.
+  El servidor solo acepta la firma si la sesión ha verificado un código hace menos de 10 minutos.
+- **Firma con código por SMS** (opcional, cada SMS cuesta dinero):
+  1. **Authentication → Providers → Phone**: actívalo y elige un proveedor (Twilio, MessageBird, Vonage o Textlocal) con sus claves.
+  2. Traduce la plantilla del SMS, p. ej. `Tu código de Gofio Jornada es {{ .Code }}`.
+  3. En `app/config.js` pon `FIRMA_SMS: true`.
+  La primera vez, la persona confirma su móvil con un código y luego recibe otro para firmar.
+- **Firma con certificado digital**: la persona descarga el documento del mes, lo firma con [AutoFirma](https://firmaelectronica.gob.es/Home/Descargas.html) (CAdES, archivo `.csig`) y lo sube.
+  El servidor comprueba que la firma es de ese documento exacto y la guarda; se puede validar después con AutoFirma o en <https://valide.redsara.es>.
+
+## 7. Actualizar a todos los clientes
 Hay un único código para todas las empresas: cada `push` a `main` actualiza la app de todas. Los cambios en la base de datos van en un **archivo de migración nuevo** (`0008_...sql`); los que ya se han aplicado no se editan.
 Cada función nueva debe llevar `revoke execute on function public.<nombre>(...) from public, anon;` (las pruebas fallan si se olvida).

@@ -3,6 +3,8 @@
 export const CONFIG = {
   SUPABASE_URL: 'https://zquhugdjxfinjqtdxjna.supabase.co',
   SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpxdWh1Z2RqeGZpbmpxdGR4am5hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzNDc1OTUsImV4cCI6MjEwNTkyMzU5NX0.E8oca8rvGo3GsauH2tnbtDnduFWPWB-d1xjxqVxfcwc',   // anon public (pública; la seguridad la pone RLS)
-  VERSION: '0.1.11',
+  VERSION: '0.1.12',
   SOPORTE_EMAIL: 'hola@gofiodesign.eu',
+  // Firmar el registro con un código por SMS. Actívalo solo con un proveedor de SMS configurado en Supabase (docs/DESPLIEGUE.md).
+  FIRMA_SMS: false,
 };

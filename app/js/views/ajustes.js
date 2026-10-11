@@ -1,6 +1,7 @@
 import { api, DEMO } from '../api.js';
 import { CONFIG } from '../../config.js';
-import { h, accion, aviso, preferencia, ROLES, puedeGestionar, hoyISO, dialogo, sumarDias, fecha } from '../ui.js';
+import { h, accion, aviso, preferencia, ROLES, puedeGestionar, puedeVerEquipo, hoyISO, dialogo, sumarDias, fecha } from '../ui.js';
+import { tarjetaFirma } from './firma.js';
 import { descargar } from '../lib/csv.js';
 import { plantillasObs } from '../lib/factura.js';
 import { USOS, usaPersonal } from '../lib/personal.js';
@@ -8,7 +9,9 @@ import { USOS, usaPersonal } from '../lib/personal.js';
 export async function vistaAjustes(app, seccion) {
   const e = app.e;
   const gestiona = puedeGestionar(app.rol);
-  const bloques = [cuenta(app), usoJornada(app), etiquetasNfc()];
+  const profesional = app.uso !== 'personal';
+  const bloques = [cuenta(app), usoJornada(app), profesional && tarjetaFirma(app), etiquetasNfc()].filter(Boolean);
+  if (profesional && puedeVerEquipo(app.rol)) bloques.push(await puntosQr(app));
   if (gestiona) {
     const [miembros, invitaciones, exportaciones] = await Promise.all([api.miembros(app.org), api.invitaciones(app.org), api.exportaciones(app.org).catch(() => [])]);
     bloques.push(usuarios(app, miembros, invitaciones), plan(app, miembros, exportaciones), empresa(app));
@@ -69,6 +72,77 @@ function etiquetasNfc() {
     h('label', { for: 'nfc-nombre' }, 'Nombre de la etiqueta'), nombre, salida,
     h('button.btn', { onclick: async () => { await navigator.clipboard?.writeText(url()).catch(() => { }); aviso('Dirección copiada', 'ok'); } }, 'Copiar dirección'),
     h('p.ayuda', 'En iPhone aparece un aviso al acercarlo: tócalo para abrir la app. En Android se abre directamente.'));
+}
+
+// Códigos QR para fichar: uno por sitio (taller, local, obra). Se imprime y se pega a la entrada.
+// Al escanearlo con la cámara del móvil se abre la app y pregunta qué fichar; el fichaje queda marcado con el punto.
+const urlQr = token => `${location.origin}${location.pathname}?qr=${token}`;
+const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+async function imprimirQr(p, donde) {
+  const w = window.open('', '_blank');   // dentro del toque, para que el navegador no la bloquee
+  if (!w) return aviso('Permite las ventanas emergentes para imprimir el código', 'error');
+  const m = await import('qrcode-generator'); const qrcode = m.default || m.qrcode;
+  const q = qrcode(0, 'M'); q.addData(urlQr(p.token)); q.make();
+  w.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>QR · ${esc(p.nombre)}</title>
+<style>body{font-family:system-ui,sans-serif;text-align:center;margin:2cm 1cm;color:#1f3a2e}svg{width:min(80vw,11cm);height:auto}
+h1{font-size:2rem;margin:0 0 .3rem}p{margin:.4rem 0}.pie{color:#555;font-size:.8rem;word-break:break-all}</style></head><body>
+<h1>${esc(p.nombre)}</h1>${donde ? `<p>${esc(donde)}</p>` : ''}${q.createSvgTag({ cellSize: 8, margin: 4, scalable: true })}
+<p><strong>Para fichar, escanea este código con la cámara del móvil</strong></p><p class="pie">Gofio Jornada · ${esc(urlQr(p.token))}</p>
+<script>onload = () => print();<\/script></body></html>`);
+  w.document.close();
+}
+
+async function puntosQr(app) {
+  const [puntos, clientes, proyectos] = await Promise.all([api.puntosQr(app.org), api.clientes(app.org), api.proyectos(app.org).catch(() => [])]);
+  const donde = p => [proyectos.find(x => x.id === p.proyecto_id)?.nombre && '📁 ' + proyectos.find(x => x.id === p.proyecto_id).nombre,
+    clientes.find(x => x.id === p.cliente_id)?.nombre].filter(Boolean).join(' · ');
+  const recargar = () => window.dispatchEvent(new HashChangeEvent('hashchange'));
+  const opciones = (sel = '') => [h('option', { value: '' }, 'Sin cliente ni proyecto (se elige al fichar)'),
+    proyectos.some(x => x.activo !== false) ? h('optgroup', { label: 'Proyectos' }, proyectos.filter(x => x.activo !== false).map(x => h('option', { value: 'p:' + x.id, selected: sel === 'p:' + x.id }, x.nombre))) : null,
+    h('optgroup', { label: 'Clientes' }, clientes.filter(x => x.activo !== false).map(x => h('option', { value: 'c:' + x.id, selected: sel === 'c:' + x.id }, x.nombre)))];
+  const leer = v => ({ cliente_id: v.startsWith('c:') ? v.slice(2) : null, proyecto_id: v.startsWith('p:') ? v.slice(2) : null });
+
+  const nombre = h('input', { id: 'qr-nombre', maxLength: 60, placeholder: 'Taller, Local de la calle Mayor, Obra El Jardín…', required: true });
+  const sitio = h('select', { id: 'qr-sitio' }, opciones());
+  const form = h('form.formulario', { onsubmit: ev => {
+    ev.preventDefault();
+    accion(form.querySelector('button'), async () => {
+      await api.guardarPuntoQr(app.org, { nombre: nombre.value.trim(), ...leer(sitio.value) });
+      aviso('Código creado. Imprímelo y pégalo en ese sitio.', 'ok'); recargar();
+    });
+  } }, h('h3', 'Nuevo código'),
+    h('label', { for: 'qr-nombre' }, 'Nombre del sitio'), nombre,
+    h('label', { for: 'qr-sitio' }, 'Al empezar a trabajar aquí, se ficha en'), sitio,
+    h('button.btn.primario', { type: 'submit' }, 'Crear código QR'));
+
+  const editar = async p => {
+    const n = h('input', { value: p.nombre, maxLength: 60, 'aria-label': 'Nombre' });
+    const s = h('select', { 'aria-label': 'Se ficha en' }, opciones(p.proyecto_id ? 'p:' + p.proyecto_id : p.cliente_id ? 'c:' + p.cliente_id : ''));
+    const ok = await dialogo('Editar código QR', [h('label', 'Nombre del sitio'), n, h('label', 'Al empezar a trabajar aquí, se ficha en'), s],
+      [{ texto: 'Cancelar', valor: false }, { texto: 'Guardar', clase: 'primario', valor: true }]);
+    if (ok) await accion(null, async () => { await api.guardarPuntoQr(app.org, { ...p, nombre: n.value.trim(), ...leer(s.value) }); aviso('Guardado', 'ok'); recargar(); });
+  };
+
+  const lista = h('div.lista', puntos.map(p => h('div.item' + (p.activo === false ? '.inactivo' : ''),
+    h('div', h('strong', p.nombre), h('small', p.activo === false ? 'Desactivado' : donde(p) || 'Se elige al fichar')),
+    h('div.fila-botones',
+      p.activo !== false ? h('button.btn.mini', { onclick: () => imprimirQr(p, donde(p)) }, 'Imprimir') : null,
+      p.activo !== false ? h('button.btn.mini', { onclick: async () => { await navigator.clipboard?.writeText(urlQr(p.token)).catch(() => { }); aviso('Dirección copiada: también sirve para una pegatina NFC', 'ok'); } }, 'Copiar dirección') : null,
+      h('button.btn.mini', { onclick: () => editar(p) }, 'Editar'),
+      p.activo !== false ? h('button.btn.mini', { title: 'El código impreso deja de valer y se genera otro', onclick: e => {
+        if (!confirm(`¿Cambiar el código de «${p.nombre}»? El que está impreso dejará de valer y tendrás que imprimir el nuevo.`)) return;
+        accion(e.currentTarget, async () => { await api.renovarQr(p.id); aviso('Código cambiado. Imprime el nuevo.', 'ok'); recargar(); });
+      } }, 'Cambiar código') : null,
+      h('button.btn.mini', { onclick: e => accion(e.currentTarget, async () => { await api.guardarPuntoQr(app.org, { ...p, activo: p.activo === false }); recargar(); }) },
+        p.activo === false ? 'Activar' : 'Desactivar')))));
+
+  return h('div.tarjeta', { id: 'qr' },
+    h('h2', 'Códigos QR para fichar'),
+    h('p.ayuda', 'Crea un código para cada sitio donde se trabaja, imprímelo y pégalo a la entrada. Al escanearlo con la cámara del móvil se abre la app y pregunta si empiezas, terminas o haces una pausa. El fichaje queda marcado con el sitio.'),
+    puntos.length ? lista : h('p.vacio', 'Todavía no hay códigos.'),
+    h('p.ayuda', 'Si alguien fotografía el código para fichar desde otro sitio, pulsa «Cambiar código»: el impreso deja de valer.'),
+    form);
 }
 
 // Correo de acceso a la persona invitada. Si no sale (p. ej. Supabase sin SMTP propio), la invitación sigue valiendo.

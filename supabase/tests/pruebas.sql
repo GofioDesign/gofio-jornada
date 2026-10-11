@@ -622,6 +622,126 @@ select pg_temp.como('00000000-0000-0000-0000-00000000000c', 'otra@empresa.test')
 do $$ begin if exists (select 1 from notas_tramo) then raise exception 'fuga de notas'; end if; end $$;
 reset role;
 
+-- ===== Fichar con código QR (0030) =====
+set role authenticated;
+select pg_temp.como('00000000-0000-0000-0000-00000000000a', 'propietario@gofio.test');
+insert into puntos_qr (org_id, nombre, cliente_id) values ((select org from ctx), 'Taller', (select id from clientes where codigo = 'B00000000'));
+create temp table qr as select id, token from puntos_qr where nombre = 'Taller';
+grant all on qr to authenticated;
+-- el token lo pone el servidor: ni al crear ni después
+select pg_temp.debe_fallar($$insert into puntos_qr (org_id, nombre, token) values ((select org from ctx), 'X', 'mio')$$, 'permission denied');
+select pg_temp.debe_fallar($$update puntos_qr set token = 'mio' where nombre = 'Taller'$$, 'permission denied');
+-- el empleado no ve ni crea puntos, pero sí resuelve el código que escanea
+select pg_temp.como('00000000-0000-0000-0000-00000000000b', 'empleado@gofio.test');
+select pg_temp.debe_fallar($$insert into puntos_qr (org_id, nombre) values ((select org from ctx), 'X')$$, 'row-level security');
+do $$ declare p record; f fichajes; begin
+  if exists (select 1 from puntos_qr) then raise exception 'el empleado no debería ver los puntos'; end if;
+  select * into p from public.punto_qr((select token from qr));
+  if p.nombre <> 'Taller' then raise exception 'punto_qr'; end if;
+  -- se deja la jornada cerrada para empezar con el QR
+  if (select estado from public.estado_jornada((select org from ctx))) <> 'FUERA' then perform public.fichar((select org from ctx), 'SALIDA'); end if;
+  select * into f from public.fichar((select org from ctx), 'ENTRADA', p_qr => (select token from qr));
+  if f.punto_id is distinct from (select id from qr) or f.cliente_id is distinct from (select id from clientes where codigo = 'B00000000') then
+    raise exception 'la entrada con QR no toma el punto y su cliente: %', row_to_json(f);
+  end if;
+  select * into f from public.fichar((select org from ctx), 'SALIDA', p_qr => (select token from qr));
+  if f.punto_id is distinct from (select id from qr) then raise exception 'salida con QR'; end if;
+end $$;
+-- otra empresa no puede usar el código
+select pg_temp.como('00000000-0000-0000-0000-00000000000c', 'otra@empresa.test');
+select pg_temp.debe_fallar($$select * from public.punto_qr((select token from qr))$$, 'no es de tu empresa');
+-- al cambiar el código, el anterior deja de valer
+select pg_temp.como('00000000-0000-0000-0000-00000000000b', 'empleado@gofio.test');
+select pg_temp.debe_fallar($$select public.renovar_qr((select id from qr))$$, 'Sin permiso');
+select pg_temp.como('00000000-0000-0000-0000-00000000000a', 'propietario@gofio.test');
+do $$ declare t text; begin
+  t := public.renovar_qr((select id from qr));
+  if t = (select token from qr) or length(t) <> 36 then raise exception 'renovar_qr'; end if;
+end $$;
+select pg_temp.como('00000000-0000-0000-0000-00000000000b', 'empleado@gofio.test');
+select pg_temp.debe_fallar($$select public.fichar((select org from ctx), 'ENTRADA', p_qr => (select token from qr))$$, 'ya no está activo');
+-- un punto desactivado tampoco vale
+select pg_temp.como('00000000-0000-0000-0000-00000000000a', 'propietario@gofio.test');
+update puntos_qr set activo = false where id = (select id from qr);
+select pg_temp.como('00000000-0000-0000-0000-00000000000b', 'empleado@gofio.test');
+select pg_temp.debe_fallar($$select * from public.punto_qr((select token from puntos_qr limit 1))$$, 'ya no está activo');
+reset role;
+
+-- ===== Firma mensual del registro (0030) =====
+-- un día de marzo de 2025 del empleado: 08:00 a 16:00
+select public._insertar_fichaje((select org from ctx), '00000000-0000-0000-0000-00000000000b', 'ENTRADA', null, null, null, null, null,
+  'RESPONSABLE', timestamptz '2025-03-03 08:00 Atlantic/Canary', null, 'prueba firma', 'APROBADA');
+select public._insertar_fichaje((select org from ctx), '00000000-0000-0000-0000-00000000000b', 'SALIDA', null, null, null, null, null,
+  'RESPONSABLE', timestamptz '2025-03-03 16:00 Atlantic/Canary', null, 'prueba firma', 'APROBADA');
+set role authenticated;
+select pg_temp.como('00000000-0000-0000-0000-00000000000b', 'empleado@gofio.test');
+create temp table reg as select public.registro_para_firmar((select org from ctx), '2025-03-15') as r;
+grant all on reg to authenticated;
+do $$ declare r jsonb := (select r from reg); begin
+  if (r->>'dias')::int <> 1 or (r->>'minutos')::int <> 480 or not (r->>'cerrado')::boolean or r->'firma' <> 'null'::jsonb then
+    raise exception 'registro_para_firmar: %', r;
+  end if;
+  if position('2025-03-03;08:00;16:00;8:00;0:00;0:00;2' in r->>'documento') = 0 or position('Total: 8:00 de trabajo en 1 día' in r->>'documento') = 0 then
+    raise exception 'documento: %', r->>'documento';
+  end if;
+end $$;
+-- sin haber verificado un código no se firma; con un código de hace más de 10 minutos tampoco
+select pg_temp.debe_fallar($$select public.firmar_registro((select org from ctx), '2025-03-01', (select r->>'huella' from reg), 'EMAIL')$$, 'código');
+select set_config('request.jwt.claims', jsonb_build_object('amr', jsonb_build_array(jsonb_build_object('method', 'otp', 'timestamp', extract(epoch from now())::bigint - 3600)))::text, false);
+select pg_temp.debe_fallar($$select public.firmar_registro((select org from ctx), '2025-03-01', (select r->>'huella' from reg), 'EMAIL')$$, 'código');
+-- con un código recién verificado
+select set_config('request.jwt.claims', jsonb_build_object('amr', jsonb_build_array(jsonb_build_object('method', 'otp', 'timestamp', extract(epoch from now())::bigint - 30)))::text, false);
+select pg_temp.debe_fallar($$select public.firmar_registro((select org from ctx), '2025-03-01', 'otra', 'EMAIL')$$, 'ha cambiado');
+select pg_temp.debe_fallar($$select public.firmar_registro((select org from ctx), '2025-03-01', (select r->>'huella' from reg), 'SMS')$$, 'teléfono');
+select pg_temp.debe_fallar(format('select public.firmar_registro(%L, %L, %L, %L)', (select org from ctx), date_trunc('month', now())::date, 'x', 'EMAIL'), 'terminados');
+do $$ declare f firmas_registro; r jsonb; begin
+  f := public.firmar_registro((select org from ctx), '2025-03-01', (select reg.r->>'huella' from reg), 'EMAIL');
+  if f.metodo <> 'EMAIL' or f.destino <> 'empleado@gofio.test' or f.periodo <> '2025-03-01' then raise exception 'firma: %', row_to_json(f); end if;
+  r := public.registro_para_firmar((select org from ctx), '2025-03-01');
+  if not (r->>'vigente')::boolean then raise exception 'la firma debería estar vigente'; end if;
+end $$;
+select pg_temp.debe_fallar($$select public.firmar_registro((select org from ctx), '2025-03-01', (select r->>'huella' from reg), 'EMAIL')$$, 'Ya has firmado');
+-- ni siquiera la base de datos con todos los permisos cambia o borra una firma
+reset role;
+select pg_temp.debe_fallar($$update firmas_registro set destino = 'x'$$, 'no se pueden modificar');
+select pg_temp.debe_fallar($$delete from firmas_registro$$, 'no se pueden modificar');
+set role authenticated;
+select pg_temp.debe_fallar($$insert into firmas_registro (org_id, user_id, periodo, documento, huella, dias, minutos, metodo, destino)
+  values ((select org from ctx), '00000000-0000-0000-0000-00000000000b', '2025-04-01', 'x', 'x', 1, 1, 'EMAIL', 'x')$$, 'row-level security');
+select pg_temp.debe_fallar($$select * from public.estado_firmas((select org from ctx), '2025-03-01')$$, 'Sin permiso');
+select set_config('request.jwt.claims', '', false);
+-- un responsable aprueba una corrección de ese mes: la firma deja de estar vigente
+reset role;
+select public._insertar_fichaje((select org from ctx), '00000000-0000-0000-0000-00000000000b', 'ENTRADA', null, null, null, null, null,
+  'RESPONSABLE', timestamptz '2025-03-04 09:00 Atlantic/Canary', null, 'prueba firma', 'APROBADA');
+select public._insertar_fichaje((select org from ctx), '00000000-0000-0000-0000-00000000000b', 'SALIDA', null, null, null, null, null,
+  'RESPONSABLE', timestamptz '2025-03-04 13:00 Atlantic/Canary', null, 'prueba firma', 'APROBADA');
+set role authenticated;
+select pg_temp.como('00000000-0000-0000-0000-00000000000a', 'propietario@gofio.test');
+do $$ declare e record; begin
+  select * into e from public.estado_firmas((select org from ctx), '2025-03-01') where user_id = '00000000-0000-0000-0000-00000000000b';
+  if e.dias <> 2 or e.metodo <> 'EMAIL' or e.vigente then raise exception 'estado_firmas tras la corrección: %', row_to_json(e); end if;
+end $$;
+-- se vuelve a firmar, esta vez con certificado (la firma CAdES lleva dentro el SHA-512 del documento)
+select pg_temp.como('00000000-0000-0000-0000-00000000000b', 'empleado@gofio.test');
+truncate reg;
+insert into reg select public.registro_para_firmar((select org from ctx), '2025-03-01');
+select pg_temp.debe_fallar($$select public.firmar_registro_certificado((select org from ctx), '2025-03-01', (select r->>'huella' from reg), 'no es base64')$$, 'no es válido');
+select pg_temp.debe_fallar(format('select public.firmar_registro_certificado(%L, %L, %L, %L)', (select org from ctx), '2025-03-01', (select r->>'huella' from reg),
+  encode('\x30'::bytea || decode(repeat(md5('relleno'), 19), 'hex'), 'base64')), 'no es del registro');
+do $$ declare doc bytea := convert_to((select r->>'documento' from reg), 'UTF8'); f firmas_registro; e record; begin
+  f := public.firmar_registro_certificado((select org from ctx), '2025-03-01', (select r->>'huella' from reg),
+    encode('\x3082'::bytea || decode(repeat(md5('antes'), 12), 'hex') || sha512(doc) || decode(repeat(md5('después'), 3), 'hex'), 'base64'));
+  if f.metodo <> 'CERTIFICADO' or f.firma_cms is null or f.dias <> 2 then raise exception 'firma con certificado: %', row_to_json(f); end if;
+  perform pg_temp.como('00000000-0000-0000-0000-00000000000a', 'propietario@gofio.test');
+  select * into e from public.estado_firmas((select org from ctx), '2025-03-01') where user_id = '00000000-0000-0000-0000-00000000000b';
+  if e.metodo <> 'CERTIFICADO' or not e.vigente then raise exception 'estado_firmas tras firmar con certificado: %', row_to_json(e); end if;
+end $$;
+-- otra empresa no ve las firmas
+select pg_temp.como('00000000-0000-0000-0000-00000000000c', 'otra@empresa.test');
+do $$ begin if exists (select 1 from firmas_registro) then raise exception 'fuga de firmas'; end if; end $$;
+reset role;
+
 -- ===== 0027. Tiempo personal: privado de cada persona =====
 select pg_temp.como('00000000-0000-0000-0000-00000000000b', 'empleado@gofio.test');
 set role authenticated;

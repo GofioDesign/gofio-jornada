@@ -34,6 +34,13 @@ if (parametros.has('nfc')) {
   const resto = location.search.slice(1).split('&').filter(x => x && !/^nfc(=|$)/.test(x)).join('&');
   history.replaceState(null, '', location.pathname + (resto ? '?' + resto : '') + '#/');
 }
+// ?qr=<token>: se ha escaneado el código QR de un punto de fichaje (o una etiqueta NFC con esa dirección).
+if (parametros.has('qr')) {
+  const token = parametros.get('qr') || '';
+  if (/^[0-9a-f]{16,64}$/i.test(token)) app.qr = token.toLowerCase();
+  const resto = location.search.slice(1).split('&').filter(x => x && !/^qr(=|$)/.test(x)).join('&');
+  history.replaceState(null, '', location.pathname + (resto ? '?' + resto : '') + '#/');
+}
 
 async function cargarEmpresas() {
   app.empresas = await api.misEmpresas();
@@ -89,7 +96,7 @@ async function router() {
     }
     if (!app.e) { pintarCabecera(); $menu.hidden = true; return montar($vista, await vistaAlta(app)); }
     // Uso personal: se entra por «Mi tiempo» (salvo si se abrió desde una etiqueta NFC, que pregunta en la Jornada)
-    if (app.uso === 'personal' && ruta === '#/' && !app.nfc) { location.replace('#/personal'); return; }
+    if (app.uso === 'personal' && ruta === '#/' && !app.nfc && !app.qr) { location.replace('#/personal'); return; }
     pintarCabecera(); pintarMenu(ruta);
     const [, seccion, id, sub] = ruta.replace(/^#\/?/, '#/').split('/');
     let v;

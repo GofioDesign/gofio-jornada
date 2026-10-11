@@ -3,12 +3,15 @@ import { h, montar, accion, aviso, hora, fecha, hoyISO, sumarDias, ROLES } from 
 import { estadoActual, fmtMin, diaLocal, TIPOS } from '../lib/jornada.js';
 import { marcarErrores } from './jornada.js';
 import { toCSV, descargar } from '../lib/csv.js';
+import { descargarFirma } from './firma.js';
+import { mesesCerrados, nombreMes, METODOS } from '../lib/firma.js';
 
 export async function vistaEquipo(app) {
   const hoy = hoyISO(app.tz);
-  const [miembros, clientes, proyectos, fichajesHoy, pendientes] = await Promise.all([
+  const [miembros, clientes, proyectos, fichajesHoy, pendientes, puntos] = await Promise.all([
     api.miembros(app.org), api.clientes(app.org), api.proyectos(app.org).catch(() => []),
     api.fichajes(app.org, { desde: sumarDias(hoy, -1), hasta: hoy }), api.correccionesPendientes(app.org),
+    api.puntosQr(app.org).catch(() => []),
   ]);
   const nombre = id => miembros.find(m => m.user_id === id)?.nombre || 'Sin nombre';
   const cli = id => clientes.find(c => c.id === id)?.nombre;
@@ -16,9 +19,12 @@ export async function vistaEquipo(app) {
   // ---------- ahora mismo ----------
   const ahora = h('div.tarjeta', h('h2', 'Ahora mismo'),
     h('ul.lista-equipo', miembros.filter(m => m.activo).map(m => {
-      const st = estadoActual(fichajesHoy.filter(f => f.user_id === m.user_id));
+      const suyos = fichajesHoy.filter(f => f.user_id === m.user_id);
+      const st = estadoActual(suyos);
       const txt = st.estado === 'FUERA' ? 'Fuera' : st.estado === 'PAUSA' ? 'En pausa' : st.desplazamiento ? `🚗 Hacia ${cli(st.desplazamiento.cliente_id) || 'destino'}` : `Trabajando${st.cliente_id ? ' · ' + cli(st.cliente_id) : ''}`;
-      return h('li', h('span.punto.' + st.estado.toLowerCase()), h('strong', m.nombre || '—'), h('span.ayuda', txt + (st.desde ? ' · desde ' + hora(st.desde, app.tz) : '')));
+      // Último fichaje con código QR: dónde se fichó
+      const qr = puntos.find(p => p.id === suyos.filter(f => f.origen === 'APP').at(-1)?.punto_id);
+      return h('li', h('span.punto.' + st.estado.toLowerCase()), h('strong', m.nombre || '—'), h('span.ayuda', txt + (st.desde ? ' · desde ' + hora(st.desde, app.tz) : '') + (qr ? ' · 📷 ' + qr.nombre : '')));
     })));
 
   // ---------- correcciones ----------
@@ -89,9 +95,30 @@ export async function vistaEquipo(app) {
     }),
   }, 'Descargar registro (CSV)');
 
+  // ---------- firmas del registro ----------
+  const mesFirma = h('select', { 'aria-label': 'Mes' }, mesesCerrados(hoy, 12).map(p => h('option', { value: p }, nombreMes(p))));
+  const tablaFirmas = h('div');
+  const cargarFirmas = async () => {
+    const filas = await api.estadoFirmas(app.org, mesFirma.value);
+    montar(tablaFirmas, filas.length ? h('div.lista', filas.map(r => h('div.item',
+        h('div', h('strong', r.nombre || nombre(r.user_id)),
+          h('small', `${r.dias} ${r.dias === 1 ? 'día' : 'días'} · ${fmtMin(r.minutos)} · `,
+            r.vigente ? h('span.ok-firma', `✓ firmado el ${new Date(r.firmado_en).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', timeZone: app.tz })} con ${METODOS[r.metodo]}`)
+              : r.firma_id ? h('span.aviso-firma', 'cambió después de firmar') : 'pendiente de firmar')),
+        r.firma_id ? h('div.fila-botones',
+          h('button.btn.mini', { title: 'Documento firmado y datos de la firma', onclick: e => accion(e.currentTarget, () => descargarFirma(r.firma_id, r.nombre || nombre(r.user_id))) }, 'Justificante'),
+          r.metodo === 'CERTIFICADO' ? h('button.btn.mini', { title: 'Firma electrónica CAdES', onclick: e => accion(e.currentTarget, () => descargarFirma(r.firma_id, r.nombre || nombre(r.user_id), { cms: true })) }, '.csig') : null) : null)))
+      : h('p.vacio', 'Nadie tiene jornadas en ese mes.'));
+  };
+  mesFirma.addEventListener('change', () => accion(null, cargarFirmas));
+  await cargarFirmas();
+  const firmas = h('div.tarjeta', h('h2', 'Firmas del registro'),
+    h('p.ayuda', 'Cada persona firma su registro de cada mes desde la app: con un código por correo o SMS, o con su certificado digital. Si después se aprueba una corrección de ese mes, la firma deja de valer y se le pide que vuelva a firmar.'),
+    h('div.filtros', mesFirma), tablaFirmas);
+
   return h('section.pila',
     h('h1', 'Equipo'),
-    correcciones, ahora, fichajesEquipo,
+    correcciones, ahora, fichajesEquipo, firmas,
     h('div.tarjeta', h('h2', 'Registro de jornada'),
       h('div.filtros', desde, hasta, persona, exportar), tabla,
       h('p.ayuda', 'Una fila por persona y día: entrada, salida, pausas y desplazamientos. Los horarios por cliente y proyecto se descargan en ', h('a', { href: '#/tiempos' }, 'Tiempos'), '.'),
