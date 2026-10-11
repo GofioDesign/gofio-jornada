@@ -667,6 +667,45 @@ select pg_temp.como('00000000-0000-0000-0000-00000000000b', 'empleado@gofio.test
 select pg_temp.debe_fallar($$select * from public.punto_qr((select token from puntos_qr limit 1))$$, 'ya no está activo');
 reset role;
 
+-- ===== Horarios de trabajo (0031) =====
+set role authenticated;
+select pg_temp.como('00000000-0000-0000-0000-00000000000a', 'propietario@gofio.test');
+-- empresa: jornada partida de lunes a viernes; el empleado, solo mañanas lunes y martes
+select public.guardar_horario((select org from ctx), null, (select jsonb_agg(jsonb_build_object('dia', d, 'inicio', i, 'fin', f))
+  from generate_series(1, 5) d, (values ('08:00', '13:00'), ('15:00', '18:00')) x(i, f)));
+select public.guardar_horario((select org from ctx), '00000000-0000-0000-0000-00000000000b',
+  '[{"dia":1,"inicio":"08:00","fin":"14:00"},{"dia":2,"inicio":"08:00","fin":"14:00"}]');
+-- volver a guardar sustituye, no suma
+select public.guardar_horario((select org from ctx), '00000000-0000-0000-0000-00000000000b',
+  '[{"dia":1,"inicio":"08:00","fin":"14:00"},{"dia":2,"inicio":"08:00","fin":"14:00"}]');
+do $$ begin
+  if (select count(*) from horarios_trabajo where user_id is null) <> 10 or (select count(*) from horarios_trabajo where user_id is not null) <> 2 then
+    raise exception 'guardar_horario: %', (select count(*) from horarios_trabajo);
+  end if;
+end $$;
+select pg_temp.debe_fallar($$select public.guardar_horario((select org from ctx), null, '[{"dia":1,"inicio":"10:00","fin":"09:00"}]')$$, 'acabar después');
+select pg_temp.debe_fallar($$select public.guardar_horario((select org from ctx), null, '[{"dia":1,"inicio":"08:00","fin":"13:00"},{"dia":1,"inicio":"12:00","fin":"16:00"}]')$$, 'solapan');
+select pg_temp.debe_fallar($$select public.guardar_horario((select org from ctx), '00000000-0000-0000-0000-00000000000c', '[]')$$, 'no es de tu empresa');
+select pg_temp.debe_fallar($$insert into horarios_trabajo (org_id, dia_semana, inicio, fin) values ((select org from ctx), 6, '08:00', '09:00')$$, 'permission denied');
+-- el empleado ve el de la empresa y el suyo, pero no puede cambiarlo
+select pg_temp.como('00000000-0000-0000-0000-00000000000b', 'empleado@gofio.test');
+do $$ begin
+  if (select count(*) from horarios_trabajo) <> 12 then raise exception 'el empleado debería ver 12 tramos'; end if;
+end $$;
+select pg_temp.debe_fallar($$select public.guardar_horario((select org from ctx), null, '[]')$$, 'Sin permiso');
+-- otra empresa no ve nada
+select pg_temp.como('00000000-0000-0000-0000-00000000000c', 'otra@empresa.test');
+do $$ begin
+  if exists (select 1 from horarios_trabajo) then raise exception 'otra empresa ve los horarios'; end if;
+end $$;
+-- lista vacía: la persona vuelve al horario de la empresa
+select pg_temp.como('00000000-0000-0000-0000-00000000000a', 'propietario@gofio.test');
+select public.guardar_horario((select org from ctx), '00000000-0000-0000-0000-00000000000b', '[]');
+do $$ begin
+  if exists (select 1 from horarios_trabajo where user_id is not null) then raise exception 'no se borró el horario propio'; end if;
+end $$;
+reset role;
+
 -- ===== Firma mensual del registro (0030) =====
 -- un día de marzo de 2025 del empleado: 08:00 a 16:00
 select public._insertar_fichaje((select org from ctx), '00000000-0000-0000-0000-00000000000b', 'ENTRADA', null, null, null, null, null,
