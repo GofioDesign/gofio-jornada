@@ -57,7 +57,7 @@ update planes set max_usuarios = 3 where id = 'gratis';
 ```
 Cuando vence `plan_hasta`, la empresa vuelve a tener los límites del plan gratis. **Sus datos no se tocan.**
 
-## 6. Fichar con QR y firmar el registro (migración 0029)
+## 6. Fichar con QR y firmar el registro (migración 0030)
 - **Códigos QR**: no hace falta configurar nada. Se crean en Ajustes ▸ *Códigos QR para fichar* (propietario, administrador o responsable) y se imprimen desde ahí.
 - **Firma con código por correo**: usa la plantilla «Magic Link» de Supabase, que ya lleva `{{ .Token }}` (paso 2.5). La persona escribe las 6 cifras; el enlace no hace falta.
   El servidor solo acepta la firma si la sesión ha verificado un código hace menos de 10 minutos.

@@ -1,5 +1,5 @@
 -- =====================================================================
--- GOFIO · 0029 · Fichar con código QR · Firma mensual del registro de jornada
+-- GOFIO · 0030 · Fichar con código QR · Firma mensual del registro de jornada
 --  QR
 --  - puntos_qr: un código por sitio (taller, local, obra). Se imprime y se pega allí.
 --    Al escanearlo con la cámara del móvil se abre la app con ?qr=<token>.

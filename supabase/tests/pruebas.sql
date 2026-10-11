@@ -622,7 +622,7 @@ select pg_temp.como('00000000-0000-0000-0000-00000000000c', 'otra@empresa.test')
 do $$ begin if exists (select 1 from notas_tramo) then raise exception 'fuga de notas'; end if; end $$;
 reset role;
 
--- ===== Fichar con código QR (0029) =====
+-- ===== Fichar con código QR (0030) =====
 set role authenticated;
 select pg_temp.como('00000000-0000-0000-0000-00000000000a', 'propietario@gofio.test');
 insert into puntos_qr (org_id, nombre, cliente_id) values ((select org from ctx), 'Taller', (select id from clientes where codigo = 'B00000000'));
@@ -667,7 +667,7 @@ select pg_temp.como('00000000-0000-0000-0000-00000000000b', 'empleado@gofio.test
 select pg_temp.debe_fallar($$select * from public.punto_qr((select token from puntos_qr limit 1))$$, 'ya no está activo');
 reset role;
 
--- ===== Firma mensual del registro (0029) =====
+-- ===== Firma mensual del registro (0030) =====
 -- un día de marzo de 2025 del empleado: 08:00 a 16:00
 select public._insertar_fichaje((select org from ctx), '00000000-0000-0000-0000-00000000000b', 'ENTRADA', null, null, null, null, null,
   'RESPONSABLE', timestamptz '2025-03-03 08:00 Atlantic/Canary', null, 'prueba firma', 'APROBADA');
