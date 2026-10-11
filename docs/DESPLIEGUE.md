@@ -21,9 +21,10 @@
    *(Alternativa con la CLI: `supabase link` y después `supabase db push`.)*
 3. **Authentication → Providers → Email**: activado y con **«Confirm email» ACTIVADO**. Si se desactiva, cualquiera podría darse de alta con el email de otra persona y aceptar su invitación.
 4. **Authentication → URL Configuration**:
-   - *Site URL*: la URL de la app (paso 3), p. ej. `https://<tu-usuario>.github.io/gofio-jornada/`
-   - *Redirect URLs*: la misma URL y `http://localhost:8080` para pruebas.
-5. **Authentication → Emails**: traduce al español la plantilla «Magic Link» e incluye `{{ .Token }}`, para que también llegue el código de 6 cifras (útil si el enlace se abre en otro navegador).
+   - *Site URL*: la URL de la app, `https://jornada.gofiodesign.eu` (sin dominio propio, p. ej. `https://<tu-usuario>.github.io/gofio-jornada/`).
+   - *Redirect URLs*: `https://jornada.gofiodesign.eu/**` y `http://localhost:8080/**` para pruebas.
+   - Si el enlace del correo lleva `redirect_to=http://localhost:3000`, es que la Site URL sigue con el valor por defecto y la URL de la app no está en *Redirect URLs*: Supabase ignora la dirección que pide la app y manda a la Site URL.
+5. **Authentication → Emails**: traduce al español las plantillas «Magic Link» y «Confirm signup» e incluye `{{ .Token }}` en las dos, para que también llegue el código de 6 cifras (útil si el enlace se abre en otro navegador o en el móvil). La primera vez que entra un email nuevo se usa «Confirm signup»; después, «Magic Link».
    Para enviar más de unos pocos correos por hora, configura un SMTP propio (p. ej. el de tu dominio o Brevo) en **Project Settings → Authentication → SMTP**.
 6. **Project Settings → API**: copia `Project URL` y la clave `anon public` en `app/config.js`:
    ```js
