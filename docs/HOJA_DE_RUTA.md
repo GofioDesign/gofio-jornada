@@ -1,5 +1,7 @@
 # Hoja de ruta de la migración
 
+_Actualizada el 1 de octubre de 2026 (v0.1.14)._
+
 La hoja «Gofio Facturación» v7 **sigue funcionando** mientras tanto. No se apaga nada hasta que su sustituto esté probado.
 
 ## Fase 0 · Hecho (v0.1)
@@ -14,7 +16,7 @@ La hoja «Gofio Facturación» v7 **sigue funcionando** mientras tanto. No se ap
 - Pruebas automáticas: base de datos (roles, límites, inmutabilidad, aislamiento, totales y cadena v7) y lógica de la app.
 
 ## Fase 1 · Poner en producción la Jornada (1–2 semanas)
-- [ ] Crear el proyecto de Supabase y el repositorio (docs/DESPLIEGUE.md).
+- [x] Crear el proyecto de Supabase y el repositorio, y publicar en https://jornada.gofiodesign.eu (docs/DESPLIEGUE.md).
 - [ ] Probarla internamente en Gofio Design con 2 o 3 personas durante una semana.
 - [ ] Textos legales: aviso de privacidad del registro horario y de la geolocalización, y contrato de encargado de tratamiento para las empresas cliente.
 - [ ] **Copia automática Pro**: una Edge Function programada cada noche (pg_cron) que:
@@ -24,14 +26,24 @@ La hoja «Gofio Facturación» v7 **sigue funcionando** mientras tanto. No se ap
   4. anota el resultado en `exportaciones`.
 - [ ] Cobro del plan Pro (Stripe Checkout + webhook que actualiza `plan_id` y `plan_hasta`).
 - [ ] Aviso a quien lleva más de X horas sin fichar la salida (notificación push o email).
+- [ ] Decidir la visibilidad del repositorio: hoy es público (ver «Hosting y visibilidad del repositorio» en docs/DESPLIEGUE.md).
 
 ## Fase 2 · Facturación para testers (paridad con la v7)
 Por orden de uso real:
 1. [x] Importador del histórico: validación conjunta de FACTURAS + LINEAS + COBROS en CSV, importación idempotente y conservación de la huella.
 2. [x] Productos, proveedores y precios: migración validada desde v7, catálogo con filtros por familia/activo e histórico de cotizaciones.
-3. [ ] Editor de factura y presupuesto: líneas desde productos, IGIC por línea, IRPF por cliente y borradores.
-4. [ ] **PDF** (idiomas ES/EN), guardado en Supabase Storage con copia opcional en Drive.
-5. [ ] Cobros, estado pendiente/vencida y recordatorios.
+3. [ ] Editor de factura y presupuesto.
+   - [x] Borradores de factura con IGIC por línea, IRPF por cliente y vista previa antes de emitir.
+   - [x] Presupuestos: partidas libres o desde el catálogo y solicitud de precio a proveedores por email (con histórico).
+   - [ ] Presupuestos: IGIC en el total, estados (enviado / aceptado / rechazado) y PDF.
+   - [ ] Líneas desde productos también en el borrador de factura.
+4. [ ] **PDF**
+   - [x] PDF de factura ES/EN con logo (impresión del navegador → «Guardar como PDF»).
+   - [ ] Guardarlo en Supabase Storage, con copia opcional en Drive.
+5. [ ] Cobros
+   - [x] Estado de cobro (pendiente / vencida / parcial / cobrada) visible y filtrable.
+   - [ ] Registrar cobros desde la app (hoy solo llegan por el importador del histórico).
+   - [ ] Recordatorios de facturas vencidas.
 6. [ ] Gastos con foto del ticket, cuadre bancario (importar el extracto) y resumen IGIC 420 / IRPF 130.
 7. [ ] Presupuesto → factura (con anticipo) y rectificativas desde la interfaz.
 8. [ ] **Verifactu** (obligatorio para autónomos desde el 1-7-2027): generar el registro de facturación con su huella oficial y el QR, y enviarlo a la AEAT. La huella actual está pensada para esa migración. **Antes de ofrecer la facturación a terceros**, Gofio Design, como productor del software, debe presentar la *declaración responsable* del sistema informático de facturación.
