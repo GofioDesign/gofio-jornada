@@ -38,7 +38,9 @@ async function cargarEmpresas() {
   app.org = app.empresas.some(e => e.id === guardada) ? guardada : app.empresas[0]?.id || null;
 }
 
-function pintarCabecera() {
+function pintarCabecera(modoSA = false) {
+  document.body.classList.toggle('modo-sa', modoSA);
+  if (modoSA) { montar($empresa, h('span.etiqueta.sa', 'Superadministración')); return; }
   if (!app.e) { $empresa.replaceChildren(); return; }
   const sel = app.empresas.length > 1
     ? h('select.selector-empresa', { 'aria-label': 'Empresa', onchange: e => { preferencia('org', e.target.value); app.org = e.target.value; router(); } },
@@ -47,8 +49,12 @@ function pintarCabecera() {
   montar($empresa, sel, DEMO ? h('span.etiqueta.demo', 'DEMO') : null);
 }
 
-function pintarMenu(ruta) {
-  const items = [
+function pintarMenu(ruta, modoSA = false) {
+  // Modo superadmin: gestión de la plataforma, aparte del menú de la empresa
+  const items = modoSA ? [
+    ['#/sa', 'Unidades', 'equipo'],
+    app.e && ['#/', 'Volver a mi empresa', 'reloj'],
+  ].filter(Boolean) : [
     ['#/', 'Jornada', 'reloj'],
     ['#/clientes', 'Clientes', 'pin'],
     ['#/proyectos', 'Proyectos', 'carpeta'],
@@ -56,7 +62,6 @@ function pintarMenu(ruta) {
     puedeVerEquipo(app.rol) && ['#/tiempos', 'Tiempos', 'reparto'],
     app.facturacion && ['#/facturacion', 'Facturación', 'factura'],
     ['#/ajustes', 'Ajustes', 'ajustes'],
-    app.superadmin && ['#/admin', 'Unidades', 'equipo'],
   ].filter(Boolean);
   $menu.hidden = false;
   montar($menu, items.map(([href, txt, ic]) => h('a', { href, class: (ruta === href || (href !== '#/' && ruta.startsWith(href))) ? 'activo' : '' },
@@ -69,7 +74,11 @@ async function router() {
     const sesion = await api.sesion();
     if (!sesion) { $menu.hidden = true; $empresa.replaceChildren(); return montar($vista, await vistaLogin()); }
     if (!app.empresas.length) await cargarEmpresas();
-    if (!app.e) { $menu.hidden = true; return montar($vista, await vistaAlta(app)); }
+    if (ruta.startsWith('#/sa') && app.superadmin) {
+      pintarCabecera(true); pintarMenu('#/sa', true);
+      montar($vista, await vistaAdmin(app)); $vista.focus?.(); return;
+    }
+    if (!app.e) { pintarCabecera(); $menu.hidden = true; return montar($vista, await vistaAlta(app)); }
     pintarCabecera(); pintarMenu(ruta);
     const [, seccion, id, sub] = ruta.replace(/^#\/?/, '#/').split('/');
     let v;
@@ -79,7 +88,7 @@ async function router() {
       case 'equipo': v = puedeVerEquipo(app.rol) ? await vistaEquipo(app) : null; break;
       case 'tiempos': v = puedeVerEquipo(app.rol) ? await vistaTiempos(app) : null; break;
       case 'ajustes': v = await vistaAjustes(app, id); break;
-      case 'admin': v = app.superadmin ? await vistaAdmin(app) : null; break;
+      case 'admin': location.replace('#/sa'); return;   // antigua dirección del panel
       case 'facturacion': v = app.facturacion ? await vistaFacturacion(app, id, sub) : null; break;
       default: v = await vistaJornada(app);
     }

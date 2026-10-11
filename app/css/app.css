@@ -312,3 +312,7 @@ th button.orden:hover { text-decoration: underline; }
 .rango-tramo { margin-bottom: .5rem; }
 .rango-tramo input[type=time] { width: auto; }
 .materiales .material { display: grid; grid-template-columns: 1fr 5rem 4rem auto; gap: .35rem; margin-bottom: .35rem; }
+/* Modo superadmin: cabecera de otro color para que se note que no es la empresa */
+body.modo-sa .barra { background: #3b2a55; }
+.etiqueta.sa { background: #e9ddff; color: #3b2a55; }
+.sa-invitacion { margin: .5rem 0; }

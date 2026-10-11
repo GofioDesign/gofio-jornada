@@ -532,6 +532,7 @@ select pg_temp.como('00000000-0000-0000-0000-00000000000a', 'propietario@gofio.t
 do $$ begin if public.es_superadmin() then raise exception 'propietario como superadmin'; end if; end $$;
 select pg_temp.debe_fallar($$select * from public.sa_empresas()$$, 'superadministración');
 select pg_temp.debe_fallar($$select public.sa_crear_empresa('Otra', 'x@y.es')$$, 'superadministración');
+select pg_temp.debe_fallar($$select public.sa_anular_invitacion((select org from ctx))$$, 'superadministración');
 select pg_temp.debe_fallar($$select * from superadmins$$, 'permission denied');
 select pg_temp.debe_fallar($$insert into superadmins values (auth.uid())$$, 'permission denied');
 -- se da de alta desde la consola SQL
@@ -556,6 +557,16 @@ do $$ declare e record; begin
   select * into e from public.sa_empresas() where id = (select id from unidad);
   if e.plan_id <> 'gratis' or e.plan_hasta <> '2027-01-31' or e.tester_facturacion or e.usa_facturacion then raise exception 'actualizar: %', to_jsonb(e); end if;
 end $$;
+-- cambiar el email de la invitación del propietario y anularla (0026)
+do $$ begin
+  perform public.sa_invitar_propietario((select id from unidad), 'otra@unidad.test');
+  if (select invitacion_pendiente from public.sa_empresas() where id = (select id from unidad)) <> 'otra@unidad.test' then raise exception 'cambiar invitación'; end if;
+  perform public.sa_anular_invitacion((select id from unidad));
+  if (select invitacion_pendiente from public.sa_empresas() where id = (select id from unidad)) is not null then raise exception 'anular invitación'; end if;
+  perform public.sa_invitar_propietario((select id from unidad), 'Nueva@Unidad.test');
+end $$;
+select pg_temp.debe_fallar($$select public.sa_anular_invitacion((select id from organizaciones limit 1))$$, 'pendiente');
+select pg_temp.debe_fallar($$select public.sa_invitar_propietario((select id from unidad), 'x')$$, 'email');
 -- el futuro propietario entra con su email y acepta
 select pg_temp.como('00000000-0000-0000-0000-0000000000ab', 'nueva@unidad.test');
 do $$ declare t text; begin
