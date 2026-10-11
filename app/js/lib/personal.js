@@ -7,7 +7,7 @@ export const USOS = {
   indeciso: 'No lo sé aún',
 };
 
-export const TAREAS_PROPUESTAS = ['Cocinar', 'Fregar la loza', 'Tender y recoger la ropa', 'Ordenar', 'Limpiar', 'Compras', 'Baño', 'Deporte', 'Estudiar'];
+export const TAREAS_PROPUESTAS = ['Cocinar', 'Fregar la loza', 'Tender y recoger la ropa', 'Ordenar', 'Limpiar', 'Deporte', 'Compras', 'Baño', 'Estudiar'];
 
 export const usaPersonal = uso => uso === 'personal' || uso === 'ambos';
 export const usaProfesional = uso => uso !== 'personal';

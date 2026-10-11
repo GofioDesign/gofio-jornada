@@ -50,7 +50,7 @@ export async function vistaAlta(app) {
     h('div.csv', h('p.ayuda', 'Con más de 3, súbelos de una vez con un CSV (puedes exportarlo de Excel o Google Sheets). También puedes hacerlo luego desde Clientes.'), csv.nodo));
 
   // ---- tareas personales (personal / ambos)
-  const checks = h('div.checks', TAREAS_PROPUESTAS.map((t, i) => h('label', h('input', { type: 'checkbox', value: t, checked: i < 5 }), t)));
+  const checks = h('div.checks', TAREAS_PROPUESTAS.map((t, i) => h('label', h('input', { type: 'checkbox', value: t, checked: i < 6 }), t)));
   const otra = h('input', { placeholder: 'Añade las tuyas separadas por comas: Planchar, Regar las plantas…', 'aria-label': 'Otras tareas' });
   const anadir = () => {
     for (const t of separarTareas(otra.value)) {
