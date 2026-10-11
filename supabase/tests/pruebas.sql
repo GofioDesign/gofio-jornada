@@ -639,4 +639,19 @@ do $$ begin
   end if;
 end $$;
 
+-- toda función de public lleva search_path fijo (linter de Supabase, 0027)
+do $$ declare v text; begin
+  select string_agg(p.proname, ', ') into v from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.prokind = 'f'
+     and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')
+     and not exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c like 'search_path=%');
+  if v is not null then raise exception 'funciones sin search_path: %', v; end if;
+end $$;
+-- el trigger del límite de usuarios no se llama por la API
+do $$ begin
+  if has_function_privilege('authenticated', 'public.comprobar_limite_usuarios()', 'execute') then
+    raise exception 'authenticated puede ejecutar comprobar_limite_usuarios';
+  end if;
+end $$;
+
 select 'TODAS LAS PRUEBAS OK' as resultado;
