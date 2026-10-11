@@ -81,3 +81,9 @@ export function separarTareas(texto) {
     .map(t => t[0].toLocaleUpperCase('es') + t.slice(1))
     .filter(t => { const k = t.toLocaleLowerCase('es'); if (vistas.has(k)) return false; vistas.add(k); return true; });
 }
+
+/** «Hogar - tender ropa» → «Tender ropa»: nombre propuesto para la tarea personal al pasar un proyecto a «Mi tiempo». */
+export function tareaDesdeProyecto(nombre) {
+  const t = String(nombre || '').replace(/^\s*(hogar|casa|personal)\s*[-–—:·]\s*/i, '').trim() || String(nombre || '').trim();
+  return (t[0] || '').toLocaleUpperCase('es') + t.slice(1, 60);
+}

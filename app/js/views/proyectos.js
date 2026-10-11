@@ -1,6 +1,7 @@
 import { api } from '../api.js';
 import { h, accion, aviso, dialogo, fecha, hoyISO, sumarDias, preferencia } from '../ui.js';
 import { fmtMin } from '../lib/jornada.js';
+import { tareaDesdeProyecto } from '../lib/personal.js';
 
 const puedeEditar = rol => ['propietario', 'admin', 'responsable'].includes(rol);
 const TIPOS = { PROPIO: 'Propio', AJENO: 'Ajeno' };
@@ -70,7 +71,36 @@ export async function vistaProyecto(app, id) {
       porPersona.length > 1 ? h('table.tabla', h('tbody', porPersona.map(([u, m]) => h('tr', h('td', nombre(u)), h('td', fmtMin(m)))))) : null,
       porDia.length ? h('table.tabla', h('thead', h('tr', h('th', 'Día'), h('th', 'Trabajo'))),
         h('tbody', porDia.slice(0, 31).map(([d, m]) => h('tr', h('td', fecha(d)), h('td', fmtMin(m))))))
-        : h('p.vacio', 'Todavía no hay horas en este proyecto. Elígelo al fichar o asígnalo a un tramo desde Jornada.')));
+        : h('p.vacio', 'Todavía no hay horas en este proyecto. Elígelo al fichar o asígnalo a un tramo desde Jornada.')),
+    pasarAPersonal(app, p, mios.filter(t => t.user_id === app.e.user_id)));
+}
+
+// Proyectos usados para tareas de casa antes de existir «Mi tiempo»: lo tuyo se pasa allí y sale de la jornada.
+function pasarAPersonal(app, p, propios) {
+  const min = propios.reduce((s, t) => s + t.minutos, 0);
+  if (!min) return null;
+  return h('details.tarjeta', h('summary', h('strong', '¿Es tiempo personal?')),
+    h('p.ayuda', `Si apuntaste aquí tareas tuyas (de casa, por ejemplo), puedes pasar tus ${fmtMin(min)} a «Mi tiempo». Allí solo lo ves tú y deja de contar como trabajo.`),
+    h('button.btn', { onclick: async () => {
+      const tarea = h('input', { id: 'pp-tarea', value: tareaDesdeProyecto(p.nombre), maxLength: 60 });
+      const quitar = h('input', { type: 'checkbox', id: 'pp-quitar', checked: true });
+      const r = await dialogo('Pasar a «Mi tiempo»', h('div.formulario',
+        h('label', { for: 'pp-tarea' }, 'Tarea personal'), tarea,
+        h('label.check', quitar, ' Quitarlo también de mi jornada (recomendado)'),
+        h('p.ayuda', 'Tus tramos en este proyecto se copian a esa tarea con las mismas horas. Para quitarlos de la jornada se añade una corrección (una pausa durante ese tiempo); los fichajes originales no se borran y la corrección queda en el registro con su motivo.'
+          + (puedeEditar(app.rol) ? '' : ' La corrección queda pendiente de que la apruebe un responsable.'))), [
+        { texto: 'Cancelar', valor: null },
+        { texto: 'Pasar', clase: 'primario', valor: async () => {
+          if (!tarea.value.trim()) { tarea.focus(); return undefined; }
+          return await accion(null, () => api.pasarAMiTiempo(app.org, p.id, tarea.value.trim(), quitar.checked)) || undefined;
+        } }]);
+      if (!r) return;
+      aviso(`${r.tramos} ${r.tramos === 1 ? 'tramo pasado' : 'tramos pasados'} a «Mi tiempo» (${fmtMin(r.minutos)})${r.omitidos ? `; ${r.omitidos} sin pasar (en curso o de días ya facturados)` : ''}.`, 'ok');
+      if (puedeEditar(app.rol) && p.activo !== false && confirm(`¿Cerrar también el proyecto «${p.nombre}» para que no salga al fichar?`)) {
+        await accion(null, () => api.guardarProyecto(app.org, { id: p.id, activo: false }));
+      }
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    } }, 'Pasar a «Mi tiempo»'));
 }
 
 /** Alta o edición de un proyecto. Devuelve el proyecto guardado, o null si se cancela. */
