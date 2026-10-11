@@ -93,6 +93,12 @@ const supa = {
     return ok(await c.rpc('fichar', { p_org: org, p_tipo: tipo, p_lat: o.lat ?? null, p_lng: o.lng ?? null, p_precision: o.precision ?? null, p_cliente: o.cliente_id ?? null, p_nota: o.nota ?? null, p_proyecto: o.proyecto_id ?? null, p_qr: o.qr ?? null }));
   },
   // ---- puntos de fichaje con QR
+  // ---- horarios de trabajo (0031): la empresa (user_id null) y los propios de cada persona
+  async horarios(org) { const c = await cliente(); return ok(await c.from('horarios_trabajo').select('user_id, dia_semana, inicio, fin').eq('org_id', org)); },
+  async guardarHorario(org, user, tramos) {
+    const c = await cliente();
+    return ok(await c.rpc('guardar_horario', { p_org: org, p_user: user || null, p_tramos: tramos.map(x => ({ dia: x.dia_semana, inicio: x.inicio, fin: x.fin })) }));
+  },
   async puntosQr(org) { const c = await cliente(); return ok(await c.from('puntos_qr').select('*').eq('org_id', org).order('nombre')); },
   async guardarPuntoQr(org, x) {
     const c = await cliente(); const datos = { nombre: x.nombre, cliente_id: x.cliente_id || null, proyecto_id: x.proyecto_id || null, activo: x.activo !== false };
@@ -473,6 +479,13 @@ const demo = {
     guardar(d); return n;
   },
   async correccionesPendientes(org) { return db().fichajes.filter(f => f.org_id === org && f.estado === 'PENDIENTE'); },
+  // ---- horarios de trabajo (demo)
+  async horarios(org) { return (db().horarios || []).filter(x => x.org_id === org); },
+  async guardarHorario(org, user, tramos) {
+    const d = db(); d.horarios = (d.horarios || []).filter(x => !(x.org_id === org && (x.user_id || null) === (user || null)));
+    d.horarios.push(...tramos.map(x => ({ org_id: org, user_id: user || null, dia_semana: x.dia_semana, inicio: x.inicio, fin: x.fin })));
+    guardar(d); return tramos.length;
+  },
   // ---- puntos QR (demo)
   async puntosQr(org) { return (db().puntosQr || []).filter(p => p.org_id === org).sort((a, b) => a.nombre.localeCompare(b.nombre)); },
   async guardarPuntoQr(org, x) {

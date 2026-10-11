@@ -5,6 +5,7 @@ import { marcarErrores } from './jornada.js';
 import { toCSV, descargar } from '../lib/csv.js';
 import { descargarFirma } from './firma.js';
 import { mesesCerrados, nombreMes, METODOS } from '../lib/firma.js';
+import { horarioDe, previstoDia, previstoPeriodo, fmtDiferencia } from '../lib/horario.js';
 
 export async function vistaEquipo(app) {
   const hoy = hoyISO(app.tz);
@@ -13,6 +14,7 @@ export async function vistaEquipo(app) {
     api.fichajes(app.org, { desde: sumarDias(hoy, -1), hasta: hoy }), api.correccionesPendientes(app.org),
     api.puntosQr(app.org).catch(() => []),
   ]);
+  const horarios = await api.horarios(app.org).catch(() => []);
   const nombre = id => miembros.find(m => m.user_id === id)?.nombre || 'Sin nombre';
   const cli = id => clientes.find(c => c.id === id)?.nombre;
 
@@ -67,17 +69,28 @@ export async function vistaEquipo(app) {
   const persona = h('select', { 'aria-label': 'Persona' }, h('option', { value: '' }, 'Todo el equipo'), miembros.map(m => h('option', { value: m.user_id }, m.nombre || m.user_id)));
   const tabla = h('div');
   let filas = [];
+  // Horas previstas según el horario de cada persona, hasta hoy como mucho (los días que faltan aún no se pueden haber trabajado)
+  const conHorario = horarios.length > 0;
+  const previstoDe = (u, ini, fin) => previstoPeriodo(horarioDe(horarios, u), ini, fin < hoy ? fin : hoy);
+  const previstoEnDia = r => previstoDia(horarioDe(horarios, r.user_id), r.dia);
   const cargar = async () => {
     filas = await api.resumen(app.org, desde.value, hasta.value, persona.value || null);
     const porPersona = {};
-    filas.forEach(r => { const p = porPersona[r.user_id] = porPersona[r.user_id] || { dias: 0, t: 0, p: 0, d: 0, km: 0 }; p.dias++; p.t += r.minutos_trabajo; p.p += r.minutos_pausa; p.d += r.minutos_desplazamiento; p.km += Number(r.km_linea_recta) || 0; });
+    const fila = u => porPersona[u] = porPersona[u] || { dias: 0, t: 0, p: 0, d: 0, km: 0 };
+    filas.forEach(r => { const p = fila(r.user_id); p.dias++; p.t += r.minutos_trabajo; p.p += r.minutos_pausa; p.d += r.minutos_desplazamiento; p.km += Number(r.km_linea_recta) || 0; });
+    // quien tenía que trabajar y no ha fichado también sale, con 0 horas
+    if (conHorario) miembros.filter(m => m.activo && (!persona.value || m.user_id === persona.value) && previstoDe(m.user_id, desde.value, hasta.value) > 0).forEach(m => fila(m.user_id));
+    const dif = (t, prev) => h('td', { class: t - prev < 0 ? 'falta' : '' }, fmtDiferencia(t - prev));
     montar(tabla,
       Object.keys(porPersona).length ? h('table.tabla',
-        h('thead', h('tr', h('th', 'Persona'), h('th', 'Días'), h('th', 'Trabajo'), h('th', 'Pausas'), h('th', 'Desplaz.'), h('th', 'Km'))),
-        h('tbody', Object.entries(porPersona).map(([u, p]) => h('tr', h('td', nombre(u)), h('td', p.dias), h('td', fmtMin(p.t)), h('td', fmtMin(p.p)), h('td', fmtMin(p.d)), h('td', p.km.toLocaleString('es-ES', { maximumFractionDigits: 1 })))))) : h('p.vacio', 'Sin registros en ese periodo.'),
+        h('thead', h('tr', h('th', 'Persona'), h('th', 'Días'), h('th', 'Trabajo'), conHorario ? [h('th', 'Previsto'), h('th', 'Diferencia')] : null, h('th', 'Pausas'), h('th', 'Desplaz.'), h('th', 'Km'))),
+        h('tbody', Object.entries(porPersona).map(([u, p]) => { const prev = previstoDe(u, desde.value, hasta.value); return h('tr', h('td', nombre(u)), h('td', p.dias), h('td', fmtMin(p.t)),
+          conHorario ? [h('td', fmtMin(prev)), dif(p.t, prev)] : null,
+          h('td', fmtMin(p.p)), h('td', fmtMin(p.d)), h('td', p.km.toLocaleString('es-ES', { maximumFractionDigits: 1 }))); }))) : h('p.vacio', 'Sin registros en ese periodo.'),
       filas.length ? h('details', h('summary', 'Ver por días'), h('table.tabla',
-        h('thead', h('tr', h('th', 'Día'), h('th', 'Persona'), h('th', 'Entrada'), h('th', 'Salida'), h('th', 'Trabajo'))),
-        h('tbody', filas.map(r => h('tr', h('td', fecha(r.dia)), h('td', r.nombre || nombre(r.user_id)), h('td', hora(r.primera_entrada, app.tz)), h('td', r.abierta ? 'abierta' : hora(r.ultima_salida, app.tz)), h('td', fmtMin(r.minutos_trabajo), r.correcciones ? ' *' : '')))))) : null);
+        h('thead', h('tr', h('th', 'Día'), h('th', 'Persona'), h('th', 'Entrada'), h('th', 'Salida'), h('th', 'Trabajo'), conHorario ? h('th', 'Previsto') : null)),
+        h('tbody', filas.map(r => h('tr', h('td', fecha(r.dia)), h('td', r.nombre || nombre(r.user_id)), h('td', hora(r.primera_entrada, app.tz)), h('td', r.abierta ? 'abierta' : hora(r.ultima_salida, app.tz)), h('td', fmtMin(r.minutos_trabajo), r.correcciones ? ' *' : ''),
+          conHorario ? h('td', fmtMin(previstoEnDia(r))) : null))))) : null);
   };
   [desde, hasta, persona].forEach(x => x.addEventListener('change', () => accion(null, cargar)));
   await cargar();
@@ -89,7 +102,8 @@ export async function vistaEquipo(app) {
         Entrada: r.primera_entrada ? hora(r.primera_entrada, app.tz) : '', Salida: !r.abierta && r.ultima_salida ? hora(r.ultima_salida, app.tz) : '',
         'Horas trabajo': Math.round(r.minutos_trabajo / 6) / 10, 'Minutos pausa': r.minutos_pausa, 'Minutos desplazamiento': r.minutos_desplazamiento,
         'Km línea recta': Number(r.km_linea_recta) || 0, Correcciones: r.correcciones,
-      })), ['Persona', 'NIF', 'Fecha', 'Entrada', 'Salida', 'Horas trabajo', 'Minutos pausa', 'Minutos desplazamiento', 'Km línea recta', 'Correcciones']);
+        ...(conHorario ? { 'Horas previstas': Math.round(previstoEnDia(r) / 6) / 10 } : {}),
+      })), ['Persona', 'NIF', 'Fecha', 'Entrada', 'Salida', 'Horas trabajo', ...(conHorario ? ['Horas previstas'] : []), 'Minutos pausa', 'Minutos desplazamiento', 'Km línea recta', 'Correcciones']);
       descargar(`registro-jornada_${desde.value}_${hasta.value}.csv`, csv);
       await api.registrarExportacion(app.org, 'MANUAL_CSV', `${desde.value}..${hasta.value}`).catch(() => { });
     }),
@@ -122,6 +136,8 @@ export async function vistaEquipo(app) {
     h('div.tarjeta', h('h2', 'Registro de jornada'),
       h('div.filtros', desde, hasta, persona, exportar), tabla,
       h('p.ayuda', 'Una fila por persona y día: entrada, salida, pausas y desplazamientos. Los horarios por cliente y proyecto se descargan en ', h('a', { href: '#/tiempos' }, 'Tiempos'), '.'),
+      conHorario ? h('p.ayuda', 'Previsto: lo que marca el horario de trabajo de cada persona, hasta hoy. Se cambia en ', h('a', { href: '#/ajustes/horario' }, 'Ajustes'), '.')
+        : h('p.ayuda', 'Pon un horario de trabajo en ', h('a', { href: '#/ajustes/horario' }, 'Ajustes'), ' para ver las horas previstas junto a las trabajadas.'),
       h('p.ayuda', '* Incluye correcciones aprobadas. El registro se conserva 4 años y no se puede borrar ni modificar.')),
     h('p.ayuda', 'Roles: ', Object.values(ROLES).join(' · '), '. Gestiona usuarios en Ajustes.'));
 }
