@@ -197,6 +197,11 @@ const supa = {
     return ok(await c.from('tiempos_personales').insert({ tarea_id, inicio: ahora }).select().single());
   },
   async pararPersonal() { const c = await cliente(); return ok(await c.from('tiempos_personales').update({ fin: new Date().toISOString() }).is('fin', null)); },
+  async pasarAMiTiempo(org, proyecto, tarea, quitar) {
+    const c = await cliente();
+    const r = ok(await c.rpc('pasar_a_mi_tiempo', { p_org: org, p_proyecto: proyecto, p_tarea: tarea, p_quitar_de_jornada: !!quitar }));
+    return Array.isArray(r) ? r[0] : r;
+  },
   async borrarTiempoPersonal(id) { const c = await cliente(); return ok(await c.from('tiempos_personales').delete().eq('id', id)); },
   async fijarUbicacion(id, lat, lng) { const c = await cliente(); return ok(await c.rpc('fijar_ubicacion_cliente', { p_cliente: id, p_lat: lat, p_lng: lng })); },
 
@@ -582,6 +587,23 @@ const demo = {
     const fila = { id: uid(), tarea_id, inicio: ahora, fin: null }; d.tiemposPersonales.push(fila); guardar(d); return fila;
   },
   async pararPersonal() { const d = db(); const ahora = new Date().toISOString(); (d.tiemposPersonales || []).forEach(t => { if (!t.fin) t.fin = ahora; }); guardar(d); },
+  async pasarAMiTiempo(org, proyecto, tarea, quitar) {
+    const tr = (await demo.tramos(org, '2000-01-01', '2999-12-31', 'demo-user')).filter(t => t.tipo === 'TRABAJO' && t.proyecto_id === proyecto);
+    const t0 = await demo.guardarTareaPersonal({ nombre: tarea }).catch(async () => (await demo.tareasPersonales()).find(t => t.nombre.toLowerCase() === tarea.toLowerCase()));
+    const d = db(); d.tiemposPersonales = d.tiemposPersonales || []; const r = { tramos: 0, minutos: 0, omitidos: 0 };
+    const motivo = `Tiempo personal pasado a Mi tiempo (${d.proyectos.find(p => p.id === proyecto)?.nombre || ''})`;
+    const correccion = (tipo, momento) => d.fichajes.push({ id: uid(), org_id: org, user_id: 'demo-user', tipo, momento: new Date().toISOString(), momento_declarado: momento, motivo, origen: 'RESPONSABLE', estado: 'APROBADA' });
+    for (const t of tr) {
+      if (!t.fin) { r.omitidos++; continue; }
+      if (!d.tiemposPersonales.some(x => Date.parse(x.inicio) === Date.parse(t.inicio))) d.tiemposPersonales.push({ id: uid(), tarea_id: t0.id, inicio: t.inicio, fin: t.fin });
+      if (quitar) {
+        const cierra = d.fichajes.some(f => f.user_id === 'demo-user' && ['PAUSA', 'SALIDA'].includes(f.tipo) && Date.parse(f.momento_declarado || f.momento) === Date.parse(t.fin));
+        correccion('PAUSA', t.inicio); if (!cierra) correccion('REANUDAR', t.fin);
+      }
+      r.tramos++; r.minutos += t.minutos;
+    }
+    guardar(d); return r;
+  },
   async borrarTiempoPersonal(id) { const d = db(); d.tiemposPersonales = (d.tiemposPersonales || []).filter(t => t.id !== id); guardar(d); },
   async fijarUbicacion(id, lat, lng) { const d = db(); Object.assign(d.clientes.find(c => c.id === id), { lat, lng }); guardar(d); },
 
