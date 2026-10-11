@@ -73,3 +73,11 @@ export function clientesDesdeCSV(filas, existentes = []) {
 /** Día (AAAA-MM-DD) en la zona horaria indicada. */
 export const diaLocal = (x, tz = 'Atlantic/Canary') =>
   new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(ms(x)));
+
+/** «Planchar, regar las plantas; pasear al perro» → ['Planchar', 'Regar las plantas', 'Pasear al perro'] (sin repetir). */
+export function separarTareas(texto) {
+  const vistas = new Set();
+  return String(texto || '').split(/[,;\n]/).map(t => t.trim().replace(/\s+/g, ' ').slice(0, 60)).filter(Boolean)
+    .map(t => t[0].toLocaleUpperCase('es') + t.slice(1))
+    .filter(t => { const k = t.toLocaleLowerCase('es'); if (vistas.has(k)) return false; vistas.add(k); return true; });
+}

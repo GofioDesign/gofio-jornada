@@ -42,3 +42,9 @@ test('la plantilla que se descarga se vuelve a leer', () => {
   const texto = toCSV([{ nombre: 'A', nif: 'B00000000', tipo: 'empresa' }], ['nombre', 'nif', 'tipo']);
   assert.deepEqual(clientesDesdeCSV(parseCSV(texto)).clientes, [{ nombre: 'A', codigo: 'B00000000', tipo: 'EMPRESA' }]);
 });
+
+test('tareas propias separadas por comas', async () => {
+  const { separarTareas } = await import('../app/js/lib/personal.js');
+  assert.deepEqual(separarTareas(' planchar,  regar las   plantas; Planchar,\npasear al perro, ,'), ['Planchar', 'Regar las plantas', 'Pasear al perro']);
+  assert.deepEqual(separarTareas(''), []);
+});

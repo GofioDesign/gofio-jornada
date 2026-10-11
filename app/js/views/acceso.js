@@ -1,6 +1,6 @@
 import { api, DEMO } from '../api.js';
 import { h, accion, aviso, preferencia } from '../ui.js';
-import { USOS, TAREAS_PROPUESTAS, usaPersonal, clientesDesdeCSV } from '../lib/personal.js';
+import { USOS, TAREAS_PROPUESTAS, usaPersonal, clientesDesdeCSV, separarTareas } from '../lib/personal.js';
 import { cajaCSVClientes } from './clientes.js';
 
 export async function vistaLogin() {
@@ -51,15 +51,19 @@ export async function vistaAlta(app) {
 
   // ---- tareas personales (personal / ambos)
   const checks = h('div.checks', TAREAS_PROPUESTAS.map((t, i) => h('label', h('input', { type: 'checkbox', value: t, checked: i < 5 }), t)));
-  const otra = h('input', { placeholder: 'Añade la tuya, p. ej. Planchar', maxLength: 60, 'aria-label': 'Otra tarea' });
+  const otra = h('input', { placeholder: 'Añade las tuyas separadas por comas: Planchar, Regar las plantas…', 'aria-label': 'Otras tareas' });
   const anadir = () => {
-    const t = otra.value.trim(); if (!t) return;
-    checks.append(h('label', h('input', { type: 'checkbox', value: t, checked: true }), t)); otra.value = ''; otra.focus();
+    for (const t of separarTareas(otra.value)) {
+      const ya = [...checks.querySelectorAll('input')].find(c => c.value.toLocaleLowerCase('es') === t.toLocaleLowerCase('es'));
+      if (ya) ya.checked = true;
+      else checks.append(h('label', h('input', { type: 'checkbox', value: t, checked: true }), t));
+    }
+    otra.value = ''; otra.focus();
   };
   otra.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); anadir(); } });
   const secTareas = h('div.pila',
     h('h3', 'Tus tareas'),
-    h('p.ayuda', 'Elige qué quieres medir. Funcionan como proyectos a los que das tiempo con un toque. Solo las ves tú y no son fichajes.'),
+    h('p.ayuda', 'Elige qué quieres medir y añade las tuyas separadas por comas. Funcionan como proyectos a los que das tiempo con un toque. Solo las ves tú y no son fichajes.'),
     checks, h('div.fila', otra, h('button.btn', { type: 'button', onclick: anadir }, 'Añadir')));
 
   const secEmpresa = h('div',
@@ -101,6 +105,7 @@ export async function vistaAlta(app) {
         const nueva = (await api.misEmpresas()).find(x => x.id === id);
         await api.guardarEmpresa(id, { config: { ...(nueva?.config || {}), uso } });
         const clientes = clientesElegidos();
+        if (otra.value.trim()) anadir();   // lo escrito sin pulsar «Añadir» también cuenta
         const tareas = secTareas.hidden ? [] : [...checks.querySelectorAll('input:checked')].map(c => c.value);
         try {
           if (clientes.length) await api.importarClientes(id, clientes);
