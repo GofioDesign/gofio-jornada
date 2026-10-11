@@ -115,6 +115,7 @@ input[type=checkbox], input[type=radio] { width: 20px; min-height: 20px; height:
 .tabla .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tabla td select { min-height: 36px; padding: 4px 8px; }
 .tabla .exceso { color: var(--pausa); font-weight: 600; }
+.tabla .falta { color: var(--peligro); }
 .tarjeta:has(> .tabla), details { overflow-x: auto; }
 .datos { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0 0 12px; }
 .datos dt { color: var(--suave); } .datos dd { margin: 0; }
@@ -350,3 +351,13 @@ ol.pasos { padding-left: 1.2rem; display: grid; gap: .6rem; }
 ol.pasos input[type=file] { display: block; margin-top: .3rem; }
 /* Códigos QR */
 .item.inactivo { opacity: .55; }
+
+/* Horario de trabajo (Ajustes) */
+.horario { display: grid; gap: 8px; margin-top: 12px; }
+.horario-dia { display: grid; grid-template-columns: 90px 1fr auto; gap: 8px; align-items: start; padding: 8px 0; border-top: 1px solid var(--borde); }
+.horario-dia > strong, .horario-dia > .btn { margin-top: 10px; }
+.horario-tramos { display: grid; gap: 6px; }
+.horario-tramos > .ayuda { margin-top: 10px; }
+.horario-tramo { display: flex; align-items: center; gap: 6px; }
+.horario-tramo input { width: auto; flex: 1 1 0; min-width: 0; }
+@media (max-width: 480px) { .horario-dia { grid-template-columns: 1fr auto; } .horario-tramos { grid-column: 1 / -1; grid-row: 2; } .horario-dia > .btn { margin-top: 0; } .horario-dia > strong { margin-top: 0; } }

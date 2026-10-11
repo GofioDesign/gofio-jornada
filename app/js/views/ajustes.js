@@ -1,11 +1,13 @@
 import { api, DEMO } from '../api.js';
 import { CONFIG } from '../../config.js';
-import { h, accion, aviso, preferencia, ROLES, puedeGestionar, puedeVerEquipo, hoyISO, dialogo, sumarDias, fecha } from '../ui.js';
+import { h, montar, accion, aviso, preferencia, ROLES, puedeGestionar, puedeVerEquipo, hoyISO, dialogo, sumarDias, fecha } from '../ui.js';
 import { tarjetaFirma } from './firma.js';
 import { descargar } from '../lib/csv.js';
 import { plantillasObs } from '../lib/factura.js';
 import { USOS, usaPersonal } from '../lib/personal.js';
 import { limiteUsuarios, copiaActiva, cuotaMensual, caducado } from '../lib/plan.js';
+import { DIAS, previstoPeriodo, errorHorario } from '../lib/horario.js';
+import { fmtMin } from '../lib/jornada.js';
 
 export async function vistaAjustes(app, seccion) {
   const e = app.e;
@@ -18,6 +20,7 @@ export async function vistaAjustes(app, seccion) {
     // El plan y lo que cuesta solo lo ve la cuenta principal (el propietario), que es quien lo paga
     if (app.rol === 'propietario') bloques.push(plan(app, await api.extras().catch(() => [])));
     bloques.push(usuarios(app, miembros, invitaciones), copias(app, exportaciones), empresa(app));
+    if (profesional) bloques.push(await horarioTrabajo(app, miembros));
     if (app.facturacion) bloques.push(observaciones(app));
     if (app.rol === 'propietario') bloques.push(await accesoApi(app));
   }
@@ -146,6 +149,81 @@ async function puntosQr(app) {
     puntos.length ? lista : h('p.vacio', 'Todavía no hay códigos.'),
     h('p.ayuda', 'Si alguien fotografía el código para fichar desde otro sitio, pulsa «Cambiar código»: el impreso deja de valer.'),
     form);
+}
+
+// Horario de trabajo: el de la empresa y, para quien trabaje distinto, uno propio.
+// Sirve para comparar las horas previstas con las trabajadas en Equipo y en la Jornada; no cambia los fichajes.
+async function horarioTrabajo(app, miembros) {
+  let horarios = await api.horarios(app.org).catch(() => []);
+  const hm = x => String(x || '').slice(0, 5);
+  const aMin = x => { const [a, b] = hm(x).split(':').map(Number); return a * 60 + b; };
+  const aHora = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  const activos = miembros.filter(m => m.activo);
+  const quien = h('select', { id: 'hor-quien' });
+  const opciones = () => montar(quien, h('option', { value: '' }, 'Toda la empresa'),
+    activos.map(m => h('option', { value: m.user_id, selected: m.user_id === quien.value },
+      (m.nombre || 'Sin nombre') + (horarios.some(x => x.user_id === m.user_id) ? ' · horario propio' : ''))));
+  const dias = h('div.horario'), estado = h('p.ayuda'), total = h('p'), botones = h('div.fila-botones');
+  let tramos = [];
+
+  const cargar = () => {
+    const user = quien.value || null;
+    const propios = horarios.filter(x => (x.user_id || null) === user);
+    tramos = (user && !propios.length ? horarios.filter(x => !x.user_id) : propios).map(x => ({ dia_semana: Number(x.dia_semana), inicio: hm(x.inicio), fin: hm(x.fin) }));
+    estado.textContent = !user ? 'Lo usa todo el equipo, salvo quien tenga un horario propio.'
+      : propios.length ? 'Esta persona tiene horario propio: los días sin tramos no trabaja.'
+      : 'Usa el horario de la empresa. Si trabaja distinto, cámbialo aquí y guarda: tendrá uno propio.';
+    dibujar();
+  };
+  const nuevoTramo = d => {
+    const del = tramos.filter(x => x.dia_semana === d).sort((a, b) => a.inicio.localeCompare(b.inicio));
+    if (!del.length) return { dia_semana: d, inicio: '08:00', fin: '13:00' };
+    const ini = Math.min(aMin(del.at(-1).fin) + 120, 23 * 60);
+    return { dia_semana: d, inicio: aHora(ini), fin: aHora(Math.min(ini + 180, 23 * 60 + 59)) };
+  };
+  const dibujar = () => {
+    montar(dias, DIAS.map((nombre, i) => {
+      const d = i + 1;
+      const del = tramos.filter(x => x.dia_semana === d).sort((a, b) => a.inicio.localeCompare(b.inicio));
+      const campo = (t, k) => h('input', { type: 'time', value: t[k], 'aria-label': `${nombre}, ${k === 'inicio' ? 'desde' : 'hasta'}`,
+        onchange: ev => { t[k] = ev.target.value; pintarTotal(); } });
+      return h('div.horario-dia',
+        h('strong', nombre),
+        h('div.horario-tramos', del.length ? del.map(t => h('div.horario-tramo', campo(t, 'inicio'), h('span', '–'), campo(t, 'fin'),
+            h('button.btn.mini', { type: 'button', title: 'Quitar este tramo', 'aria-label': `Quitar tramo de ${nombre}`,
+              onclick: () => { tramos.splice(tramos.indexOf(t), 1); dibujar(); } }, '×')))
+          : h('span.ayuda', 'No se trabaja')),
+        h('button.btn.mini', { type: 'button', onclick: () => { tramos.push(nuevoTramo(d)); dibujar(); } }, '+ Tramo'));
+    }));
+    pintarTotal();
+    const user = quien.value || null;
+    montar(botones,
+      h('button.btn', { type: 'button', title: 'Pone los tramos del lunes de martes a viernes', onclick: () => {
+        tramos = [...tramos.filter(x => x.dia_semana === 1 || x.dia_semana > 5),
+          ...[2, 3, 4, 5].flatMap(d => tramos.filter(x => x.dia_semana === 1).map(x => ({ ...x, dia_semana: d })))];
+        dibujar();
+      } }, 'Copiar el lunes de martes a viernes'),
+      h('button.btn.primario', { type: 'button', onclick: e => guardarTramos(e.currentTarget, user, tramos) }, 'Guardar horario'),
+      user && horarios.some(x => x.user_id === user) ? h('button.btn', { type: 'button', onclick: e => guardarTramos(e.currentTarget, user, []) }, 'Usar el de la empresa') : null);
+  };
+  // Total semanal: una semana cualquiera de lunes a domingo
+  const pintarTotal = () => { total.textContent = `Total semana: ${fmtMin(previstoPeriodo(tramos, '2024-01-01', '2024-01-07'))}`; };
+  const guardarTramos = (btn, user, lista) => accion(btn, async () => {
+    const error = errorHorario(lista);
+    if (error) throw new Error(error);
+    await api.guardarHorario(app.org, user, lista);
+    horarios = await api.horarios(app.org);
+    aviso(lista.length || !user ? 'Horario guardado' : 'Ahora usa el horario de la empresa', 'ok');
+    opciones(); cargar();
+  });
+  quien.addEventListener('change', cargar);
+  opciones(); cargar();
+
+  return h('div.tarjeta', { id: 'horario' },
+    h('h2', 'Horario de trabajo'),
+    h('p.ayuda', 'Las horas que se espera que trabaje cada persona. En Equipo verás las previstas junto a las trabajadas, y cada persona ve su horario del día en la Jornada. Para una jornada partida, pon dos tramos el mismo día: el hueco entre ellos es el descanso.'),
+    h('label', { for: 'hor-quien' }, 'Horario de'), quien, estado,
+    dias, total, botones);
 }
 
 // Correo de acceso a la persona invitada. Si no sale (p. ej. Supabase sin SMTP propio), la invitación sigue valiendo.

@@ -6,6 +6,7 @@ import { editar as editarCliente } from './clientes.js';
 import { editar as editarProyecto } from './proyectos.js';
 import { avisoFirma } from './firma.js';
 import { mesAnterior } from '../lib/firma.js';
+import { horarioDe, previstoDia, previstoPeriodo, textoDia, diaSemana } from '../lib/horario.js';
 
 const puedeCrearClientes = rol => ['propietario', 'admin', 'responsable'].includes(rol);
 
@@ -31,7 +32,7 @@ export async function vistaJornada(app) {
   clearInterval(reloj);
   const hoy = hoyISO(app.tz);
   const dia = diaVista && diaVista < hoy ? diaVista : hoy;
-  const [clientes, proyectos, fichajes, semana, fichajesDia, notas, productos, firmaMes] = await Promise.all([
+  const [clientes, proyectos, fichajes, semana, fichajesDia, notas, productos, firmaMes, horarios] = await Promise.all([
     api.clientes(app.org),
     api.proyectos(app.org).catch(() => []),
     api.fichajes(app.org, { desde: sumarDias(hoy, -1), hasta: hoy, user: app.e.user_id }),
@@ -40,6 +41,7 @@ export async function vistaJornada(app) {
     api.notasTramo(app.org, dia, dia, app.e.user_id).catch(() => []),
     api.productos(app.org).catch(() => []),   // solo quien ve facturación; si no, materiales a mano
     api.registroParaFirmar(app.org, mesAnterior(hoy)).catch(() => null),   // ¿falta firmar el mes pasado?
+    api.horarios(app.org).catch(() => []),
   ]);
   const cli = id => clientes.find(c => c.id === id);
   const pro = id => proyectos.find(p => p.id === id);
@@ -107,16 +109,21 @@ export async function vistaJornada(app) {
     puedeCrearClientes(app.rol) && delDia.some(f => !f.anulado) ? h('button.btn.enlace', { onclick: () => marcarErrores(app, delDia, { clientes, proyectos }) }, 'Marcar fichajes de este día como error') : null);
 
   // ---------- semana ----------
-  const horasDia = Number(app.e.config?.jornada_horas_dia) || 8;
+  // Con horario de trabajo, el exceso se mide contra lo previsto ese día; si no, contra las horas de jornada de la empresa
+  const horario = horarioDe(horarios, app.e.user_id);
+  const limite = d => horario.length ? previstoDia(horario, d) : (Number(app.e.config?.jornada_horas_dia) || 8) * 60;
+  const horarioHoy = horario.length ? textoDia(horario, diaSemana(hoy)) || 'hoy no trabajas' : null;
   const semanaEl = h('div.tarjeta',
     h('h2', 'Últimos 7 días'),
+    horarioHoy ? h('p.ayuda', 'Tu horario hoy: ', h('strong', horarioHoy)) : null,
     semana.length ? h('table.tabla',
       h('thead', h('tr', h('th', 'Día'), h('th', 'Entrada'), h('th', 'Trabajo'), h('th', 'Desplaz.'))),
       h('tbody', semana.slice().reverse().map(r => h('tr.enlace', { title: 'Ver el día', onclick: () => irA(r.dia) },
         h('td', fecha(r.dia)), h('td', hora(r.primera_entrada, app.tz)),
-        h('td', { class: r.minutos_trabajo > horasDia * 60 ? 'exceso' : '' }, fmtMin(r.minutos_trabajo), r.abierta ? ' ⏱' : ''),
+        h('td', { class: r.minutos_trabajo > limite(r.dia) ? 'exceso' : '' }, fmtMin(r.minutos_trabajo), r.abierta ? ' ⏱' : ''),
         h('td', fmtMin(r.minutos_desplazamiento)))))) : h('p.vacio', 'Sin registros esta semana.'),
-    semana.length ? h('p.ayuda', 'Total semana: ', h('strong', fmtMin(semana.reduce((s, r) => s + r.minutos_trabajo, 0)))) : null);
+    semana.length ? h('p.ayuda', 'Total semana: ', h('strong', fmtMin(semana.reduce((s, r) => s + r.minutos_trabajo, 0))),
+      horario.length ? ` de ${fmtMin(previstoPeriodo(horario, sumarDias(hoy, -6), hoy))} previstas` : '') : null);
 
   raiz.append(...[tarjeta, avisoFirma(app, firmaMes), lineaTiempo, semanaEl].filter(Boolean));
   if (app.nfc) { const etiqueta = app.nfc; app.nfc = null; queueMicrotask(() => preguntarNfc(raiz, st, etiqueta)); }
