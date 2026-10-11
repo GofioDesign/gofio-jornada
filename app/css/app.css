@@ -11,6 +11,7 @@
           --marca: #8fc3a5; --marca-2: #a6d3b8; --acento: #e0b05c; --ok: #6fcf97; --pausa: #e8b04f; --peligro: #f28b82; color-scheme: dark; }
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; background: var(--fondo); color: var(--texto); font-size: 16px; line-height: 1.45; }
 a { color: var(--marca-2); }
 h1 { font-size: 1.5rem; margin: 0; } h2 { font-size: 1.1rem; margin: 0 0 .75rem; } h3 { font-size: 1rem; margin: 1rem 0 .5rem; }
@@ -134,6 +135,7 @@ input[type=checkbox], input[type=radio] { width: 20px; min-height: 20px; height:
 .icono.carpeta { --i: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linejoin="round"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/></svg>'); }
 .icono.equipo { --i: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6"/></svg>'); }
 .icono.reparto { --i: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 9 9h-9z"/><path d="M15 2.5A7 7 0 0 1 21.5 9H15z"/></svg>'); }
+.icono.crono { --i: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="14" r="7"/><path d="M12 14V10M10 3h4M12 3v4M18 7l1.5-1.5"/></svg>'); }
 .icono.factura { --i: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linejoin="round"><path d="M6 2h9l4 4v16H6z"/><path d="M9 11h7M9 15h7M9 7h3"/></svg>'); }
 .icono.ajustes { --i: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>'); }
 @media (min-width: 900px) {
@@ -316,3 +318,19 @@ th button.orden:hover { text-decoration: underline; }
 body.modo-sa .barra { background: #3b2a55; }
 .etiqueta.sa { background: #e9ddff; color: #3b2a55; }
 .sa-invitacion { margin: .5rem 0; }
+
+/* Mi tiempo (personal) y sondeo inicial */
+.estado-personal { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; justify-content: space-between; }
+.estado-personal p { margin: 0; }
+.cronometro { font-size: 1.8rem; font-variant-numeric: tabular-nums; }
+.tareas-personales { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: .5rem; }
+.tareas-personales .tarea { min-height: 64px; white-space: normal; }
+.tareas-personales .tarea.activa { background: var(--ok); border-color: var(--ok); color: #fff; }
+.lista-simple { list-style: none; padding: 0; margin: .5rem 0 0; }
+.lista-simple li { display: flex; justify-content: space-between; align-items: center; gap: .5rem; padding: .35rem 0; border-top: 1px solid var(--borde); }
+.opciones { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: .5rem; }
+.opciones .btn[aria-pressed="true"] { background: var(--marca); border-color: var(--marca); color: #fff; }
+@media (prefers-color-scheme: dark) { .opciones .btn[aria-pressed="true"] { color: #121513; } }
+.checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: .25rem .75rem; }
+.checks label { display: flex; align-items: center; gap: .4rem; font-weight: normal; }
+.checks input { width: auto; }

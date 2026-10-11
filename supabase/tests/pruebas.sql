@@ -622,6 +622,28 @@ select pg_temp.como('00000000-0000-0000-0000-00000000000c', 'otra@empresa.test')
 do $$ begin if exists (select 1 from notas_tramo) then raise exception 'fuga de notas'; end if; end $$;
 reset role;
 
+-- ===== 0027. Tiempo personal: privado de cada persona =====
+select pg_temp.como('00000000-0000-0000-0000-00000000000b', 'empleado@gofio.test');
+set role authenticated;
+insert into tareas_personales (nombre, orden) values ('Cocinar', 1), ('Tender la ropa', 2);
+insert into tiempos_personales (tarea_id, inicio) select id, now() - interval '20 minutes' from tareas_personales where nombre = 'Cocinar';
+-- solo un cronómetro en marcha
+select pg_temp.debe_fallar($$insert into tiempos_personales (tarea_id) select id from tareas_personales where nombre = 'Tender la ropa'$$, 'duplicate key');
+update tiempos_personales set fin = now() where fin is null;
+insert into tiempos_personales (tarea_id) select id from tareas_personales where nombre = 'Tender la ropa';
+do $$ begin if (select count(*) from tiempos_personales) <> 2 then raise exception 'la persona no ve sus tiempos'; end if; end $$;
+-- el propietario de su empresa no ve nada, ni puede apuntar en una tarea ajena
+select pg_temp.como('00000000-0000-0000-0000-00000000000a', 'propietario@gofio.test');
+set role authenticated;
+do $$ begin if exists (select 1 from tareas_personales) or exists (select 1 from tiempos_personales) then raise exception 'fuga de tiempo personal'; end if; end $$;
+select pg_temp.debe_fallar($$insert into tareas_personales (user_id, nombre) values ('00000000-0000-0000-0000-00000000000b', 'x')$$, 'row-level security');
+reset role;
+create temp table tarea_ajena as select id from tareas_personales where nombre = 'Cocinar';
+grant select on tarea_ajena to authenticated;
+set role authenticated;
+select pg_temp.debe_fallar($$insert into tiempos_personales (tarea_id) select id from tarea_ajena$$, 'row-level security');
+reset role;
+
 -- un visitante SIN sesión (anon) no puede ejecutar ninguna función
 reset role;
 select pg_temp.como('', '');

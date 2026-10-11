@@ -129,6 +129,32 @@ const supa = {
     }
     return ok(await c.from('notas_tramo').upsert(fila, { onConflict: 'org_id,user_id,inicio' }).select().single());
   },
+  async importarClientes(org, filas) {
+    if (!filas.length) return [];
+    const c = await cliente(); return ok(await c.from('clientes').insert(filas.map(x => ({ ...x, org_id: org }))).select());
+  },
+  // ---- tiempo personal: privado, solo lo ve quien lo apunta (no es un fichaje)
+  async tareasPersonales() { const c = await cliente(); return ok(await c.from('tareas_personales').select('*').order('orden').order('nombre')); },
+  async guardarTareaPersonal(x) {
+    const c = await cliente(); const { id, ...datos } = x;
+    return ok(id ? await c.from('tareas_personales').update(datos).eq('id', id).select().single() : await c.from('tareas_personales').insert(datos).select().single());
+  },
+  async crearTareasPersonales(nombres) {
+    if (!nombres.length) return [];
+    const c = await cliente();
+    return ok(await c.from('tareas_personales').upsert(nombres.map((nombre, orden) => ({ nombre, orden })), { onConflict: 'user_id,nombre', ignoreDuplicates: true }).select());
+  },
+  async tiemposPersonales(desde, hasta) {
+    const c = await cliente();
+    return ok(await c.from('tiempos_personales').select('*').gte('inicio', masDias(desde, -1)).lt('inicio', masDias(hasta, 2)).order('inicio'));
+  },
+  async empezarPersonal(tarea_id) {
+    const c = await cliente(); const ahora = new Date().toISOString();
+    ok(await c.from('tiempos_personales').update({ fin: ahora }).is('fin', null));
+    return ok(await c.from('tiempos_personales').insert({ tarea_id, inicio: ahora }).select().single());
+  },
+  async pararPersonal() { const c = await cliente(); return ok(await c.from('tiempos_personales').update({ fin: new Date().toISOString() }).is('fin', null)); },
+  async borrarTiempoPersonal(id) { const c = await cliente(); return ok(await c.from('tiempos_personales').delete().eq('id', id)); },
   async fijarUbicacion(id, lat, lng) { const c = await cliente(); return ok(await c.rpc('fijar_ubicacion_cliente', { p_cliente: id, p_lat: lat, p_lng: lng })); },
 
   // ---- equipo
@@ -372,6 +398,30 @@ const demo = {
     else { fila = { activo: true, tipo: 'PROPIO', ...x, id: uid(), org_id: org, creado_en: new Date().toISOString() }; d.proyectos.push(fila); }
     guardar(d); return { ...fila };
   },
+  async importarClientes(org, filas) { const r = []; for (const x of filas) r.push(await demo.guardarCliente(org, x)); return r; },
+  async tareasPersonales() { return (db().tareasPersonales || []).slice().sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre)); },
+  async guardarTareaPersonal(x) {
+    const d = db(); d.tareasPersonales = d.tareasPersonales || []; let fila;
+    if (x.id) fila = Object.assign(d.tareasPersonales.find(t => t.id === x.id), x);
+    else {
+      if (d.tareasPersonales.some(t => t.nombre.toLowerCase() === x.nombre.toLowerCase())) throw new Error('Ya tienes una tarea con ese nombre');
+      fila = { activa: true, orden: d.tareasPersonales.length, ...x, id: uid() }; d.tareasPersonales.push(fila);
+    }
+    guardar(d); return { ...fila };
+  },
+  async crearTareasPersonales(nombres) {
+    const d = db(); d.tareasPersonales = d.tareasPersonales || [];
+    nombres.forEach((nombre, orden) => { if (!d.tareasPersonales.some(t => t.nombre === nombre)) d.tareasPersonales.push({ id: uid(), nombre, orden, activa: true }); });
+    guardar(d); return d.tareasPersonales;
+  },
+  async tiemposPersonales() { return db().tiemposPersonales || []; },
+  async empezarPersonal(tarea_id) {
+    const d = db(); d.tiemposPersonales = d.tiemposPersonales || []; const ahora = new Date().toISOString();
+    d.tiemposPersonales.forEach(t => { if (!t.fin) t.fin = ahora; });
+    const fila = { id: uid(), tarea_id, inicio: ahora, fin: null }; d.tiemposPersonales.push(fila); guardar(d); return fila;
+  },
+  async pararPersonal() { const d = db(); const ahora = new Date().toISOString(); (d.tiemposPersonales || []).forEach(t => { if (!t.fin) t.fin = ahora; }); guardar(d); },
+  async borrarTiempoPersonal(id) { const d = db(); d.tiemposPersonales = (d.tiemposPersonales || []).filter(t => t.id !== id); guardar(d); },
   async fijarUbicacion(id, lat, lng) { const d = db(); Object.assign(d.clientes.find(c => c.id === id), { lat, lng }); guardar(d); },
 
   async miembros(org) { return db().miembros.filter(m => m.org_id === org); },
