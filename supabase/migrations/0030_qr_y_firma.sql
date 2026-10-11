@@ -185,8 +185,11 @@ begin
   raise exception 'Las firmas del registro no se pueden modificar ni borrar';
 end $$;
 revoke execute on function public.firmas_inmutables() from public, anon, authenticated;
-create trigger firmas_registro_inmutables before update or delete on public.firmas_registro
+create trigger firmas_registro_no_update before update on public.firmas_registro
   for each row execute function public.firmas_inmutables();
+-- Como los fichajes (0029): solo se borran al eliminar una unidad cuyo plazo legal ya pasó
+create trigger firmas_registro_no_delete before delete on public.firmas_registro for each row
+  when (current_setting('gofio.purga_unidad', true) is distinct from old.org_id::text) execute function public.firmas_inmutables();
 
 alter table public.firmas_registro enable row level security;
 create policy firmas_registro_sel on public.firmas_registro for select using (
@@ -342,6 +345,62 @@ begin
     return next;
   end loop;
 end $$;
+
+-- ---------- Eliminar y copiar una unidad (0029): también las firmas del registro y los puntos QR ----------
+create or replace function public.sa_eliminar_unidad(p_org uuid, p_nombre text)
+returns void language plpgsql security definer set search_path = public as $$
+declare o organizaciones; v_registros boolean; v_plazo date;
+begin
+  if not es_superadmin() then raise exception 'Solo para superadministración'; end if;
+  select * into o from organizaciones where id = p_org;
+  if not found then raise exception 'Unidad no encontrada'; end if;
+  if lower(trim(coalesce(p_nombre, ''))) <> lower(trim(o.nombre)) then raise exception 'Escribe el nombre exacto de la unidad para confirmar'; end if;
+  v_registros := exists (select 1 from fichajes where org_id = p_org) or exists (select 1 from facturas where org_id = p_org);
+  if v_registros then
+    if o.baja_en is null then
+      raise exception 'La unidad tiene fichajes o facturas: dala de baja y podrás eliminarla cuando acabe el plazo legal';
+    end if;
+    v_plazo := greatest(o.eliminar_desde, plazo_conservacion(p_org));
+    if v_plazo > current_date then
+      raise exception 'Hay que conservar sus datos hasta el %', to_char(v_plazo, 'DD/MM/YYYY');
+    end if;
+    -- Plazo cumplido: se abren los borrados solo para esta unidad y en esta transacción
+    perform set_config('gofio.purga_unidad', p_org::text, true);
+    delete from horas_facturadas where org_id = p_org;
+    delete from cobros where org_id = p_org;
+    delete from presupuestos where org_id = p_org;
+    delete from facturas_lineas where factura_id in (select id from facturas where org_id = p_org);
+    delete from facturas where org_id = p_org;
+    delete from fichajes_anulados where org_id = p_org;
+    delete from fichajes where org_id = p_org;
+    delete from firmas_registro where org_id = p_org;
+  end if;
+  delete from organizaciones where id = p_org;   -- el resto (miembros, clientes, proyectos…) va en cascada
+  perform set_config('gofio.purga_unidad', '', true);
+end $$;
+
+create or replace function public.sa_copia_unidad(p_org uuid)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+begin
+  if not es_superadmin() then raise exception 'Solo para superadministración'; end if;
+  if not exists (select 1 from organizaciones where id = p_org) then raise exception 'Unidad no encontrada'; end if;
+  return jsonb_build_object(
+    'formato', 'gofio-unidad/1',
+    'generada', now(),
+    'empresa', (select to_jsonb(o) from organizaciones o where o.id = p_org),
+    'miembros', (select coalesce(jsonb_agg(to_jsonb(m) order by m.nombre), '[]') from miembros m where m.org_id = p_org),
+    'clientes', (select coalesce(jsonb_agg(to_jsonb(c) order by c.nombre), '[]') from clientes c where c.org_id = p_org),
+    'fichajes', (select coalesce(jsonb_agg(to_jsonb(f) order by f.momento), '[]') from fichajes f where f.org_id = p_org),
+    'fichajes_anulados', (select coalesce(jsonb_agg(to_jsonb(a)), '[]') from fichajes_anulados a where a.org_id = p_org),
+    'facturas', (select coalesce(jsonb_agg(to_jsonb(f) || jsonb_build_object('lineas',
+                   (select coalesce(jsonb_agg(to_jsonb(l) order by l.linea), '[]') from facturas_lineas l where l.factura_id = f.id))
+                 order by f.fecha, f.serie, f.num), '[]') from facturas f where f.org_id = p_org),
+    'gastos', (select coalesce(jsonb_agg(to_jsonb(g) order by g.fecha), '[]') from gastos g where g.org_id = p_org),
+    'firmas_registro', (select coalesce(jsonb_agg(to_jsonb(f) order by f.periodo, f.firmado_en), '[]') from firmas_registro f where f.org_id = p_org),
+    'puntos_qr', (select coalesce(jsonb_agg(to_jsonb(q) - 'token' order by q.nombre), '[]') from puntos_qr q where q.org_id = p_org)
+  );
+end $$;
+
 
 revoke execute on function public.renovar_qr(uuid), public.punto_qr(text),
   public.fichar(uuid, public.tipo_fichaje, double precision, double precision, real, uuid, text, uuid, text),

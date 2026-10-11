@@ -742,6 +742,96 @@ select pg_temp.como('00000000-0000-0000-0000-00000000000c', 'otra@empresa.test')
 do $$ begin if exists (select 1 from firmas_registro) then raise exception 'fuga de firmas'; end if; end $$;
 reset role;
 
+-- ===== 0027. Tiempo personal: privado de cada persona =====
+select pg_temp.como('00000000-0000-0000-0000-00000000000b', 'empleado@gofio.test');
+set role authenticated;
+insert into tareas_personales (nombre, orden) values ('Cocinar', 1), ('Tender la ropa', 2);
+insert into tiempos_personales (tarea_id, inicio) select id, now() - interval '20 minutes' from tareas_personales where nombre = 'Cocinar';
+-- solo un cronómetro en marcha
+select pg_temp.debe_fallar($$insert into tiempos_personales (tarea_id) select id from tareas_personales where nombre = 'Tender la ropa'$$, 'duplicate key');
+update tiempos_personales set fin = now() where fin is null;
+insert into tiempos_personales (tarea_id) select id from tareas_personales where nombre = 'Tender la ropa';
+do $$ begin if (select count(*) from tiempos_personales) <> 2 then raise exception 'la persona no ve sus tiempos'; end if; end $$;
+-- el propietario de su empresa no ve nada, ni puede apuntar en una tarea ajena
+select pg_temp.como('00000000-0000-0000-0000-00000000000a', 'propietario@gofio.test');
+set role authenticated;
+do $$ begin if exists (select 1 from tareas_personales) or exists (select 1 from tiempos_personales) then raise exception 'fuga de tiempo personal'; end if; end $$;
+select pg_temp.debe_fallar($$insert into tareas_personales (user_id, nombre) values ('00000000-0000-0000-0000-00000000000b', 'x')$$, 'row-level security');
+reset role;
+create temp table tarea_ajena as select id from tareas_personales where nombre = 'Cocinar';
+grant select on tarea_ajena to authenticated;
+set role authenticated;
+select pg_temp.debe_fallar($$insert into tiempos_personales (tarea_id) select id from tarea_ajena$$, 'row-level security');
+reset role;
+
+-- ===== 0029. Eliminar y dar de baja unidades =====
+select pg_temp.como('00000000-0000-0000-0000-0000000000aa', 'sa@gofio.test');
+set role authenticated;
+do $$ begin
+  if (select con_registros from public.sa_empresas() where id = (select id from unidad)) then raise exception 'Unidad Norte no tiene registros'; end if;
+  if not (select con_registros from public.sa_empresas() where id = (select org from ctx)) then raise exception 'la empresa de pruebas sí tiene registros'; end if;
+end $$;
+-- una unidad sin empezar se elimina ya, confirmando con su nombre
+select pg_temp.debe_fallar($$select public.sa_eliminar_unidad((select id from unidad), 'Otra')$$, 'nombre exacto');
+select public.sa_eliminar_unidad((select id from unidad), ' unidad norte ');
+do $$ begin if exists (select 1 from public.sa_empresas() where id = (select id from unidad)) then raise exception 'no se eliminó'; end if; end $$;
+-- con fichajes y facturas hay que darla de baja primero
+select pg_temp.debe_fallar($$select public.sa_eliminar_unidad((select org from ctx), 'Gofio Design')$$, 'dala de baja');
+-- solo el superadmin
+select pg_temp.como('00000000-0000-0000-0000-00000000000a', 'propietario@gofio.test');
+select pg_temp.debe_fallar($$select public.sa_dar_de_baja((select org from ctx))$$, 'superadministración');
+select pg_temp.debe_fallar($$select public.sa_copia_unidad((select org from ctx))$$, 'superadministración');
+select pg_temp.como('00000000-0000-0000-0000-0000000000aa', 'sa@gofio.test');
+do $$ declare v date; begin
+  v := public.sa_dar_de_baja((select org from ctx), 'Cerró el negocio');
+  -- hay facturas de 2026: 6 años desde el cierre de ese ejercicio
+  if v < date '2033-01-01' then raise exception 'plazo de conservación: %', v; end if;
+  if (select eliminar_desde from public.sa_empresas() where id = (select org from ctx)) <> v then raise exception 'eliminar_desde'; end if;
+  if jsonb_array_length(public.sa_copia_unidad((select org from ctx))->'fichajes') = 0
+     or jsonb_array_length(public.sa_copia_unidad((select org from ctx))->'facturas') = 0 then raise exception 'copia de la unidad'; end if;
+end $$;
+select pg_temp.debe_fallar($$select public.sa_dar_de_baja((select org from ctx))$$, 'ya está de baja');
+select pg_temp.debe_fallar($$select public.sa_eliminar_unidad((select org from ctx), 'Gofio Design')$$, 'conservar sus datos hasta');
+-- de baja, sus miembros no entran
+select pg_temp.como('00000000-0000-0000-0000-00000000000a', 'propietario@gofio.test');
+do $$ begin
+  if public.es_miembro((select org from ctx)) or exists (select 1 from clientes) or exists (select 1 from miembros) then raise exception 'unidad de baja accesible'; end if;
+end $$;
+select pg_temp.debe_fallar($$select public.fichar((select org from ctx), 'ENTRADA')$$, 'Sin permiso');
+-- reactivar devuelve el acceso
+select pg_temp.como('00000000-0000-0000-0000-0000000000aa', 'sa@gofio.test');
+select public.sa_reactivar((select org from ctx));
+select pg_temp.debe_fallar($$select public.sa_reactivar((select org from ctx))$$, 'no está de baja');
+select pg_temp.como('00000000-0000-0000-0000-00000000000a', 'propietario@gofio.test');
+do $$ begin if not public.es_miembro((select org from ctx)) then raise exception 'reactivar'; end if; end $$;
+-- los fichajes siguen sin poder borrarse
+reset role;
+select pg_temp.debe_fallar($$delete from fichajes$$, 'registro legal');
+select pg_temp.debe_fallar($$delete from facturas$$, 'rectificativa');
+select pg_temp.debe_fallar($$delete from facturas_lineas$$, 'no se pueden cambiar');
+-- baja otra vez y, con el plazo cumplido (se simula moviendo los datos 10 años atrás), se elimina todo
+set role authenticated;
+select pg_temp.como('00000000-0000-0000-0000-0000000000aa', 'sa@gofio.test');
+select public.sa_dar_de_baja((select org from ctx));
+reset role;
+alter table fichajes disable trigger user;
+update fichajes set momento = momento - interval '10 years', momento_declarado = momento_declarado - interval '10 years' where org_id = (select org from ctx);
+alter table fichajes enable trigger user;
+alter table facturas disable trigger user;
+update facturas set fecha = fecha - interval '10 years' where org_id = (select org from ctx);
+alter table facturas enable trigger user;
+update gastos set fecha = fecha - interval '10 years' where org_id = (select org from ctx);
+update organizaciones set eliminar_desde = current_date where id = (select org from ctx);
+set role authenticated;
+select pg_temp.como('00000000-0000-0000-0000-0000000000aa', 'sa@gofio.test');
+select public.sa_eliminar_unidad((select org from ctx), 'Gofio Design');
+reset role;
+do $$ begin
+  if exists (select 1 from organizaciones where id = (select org from ctx)) or exists (select 1 from fichajes where org_id = (select org from ctx))
+     or exists (select 1 from facturas where org_id = (select org from ctx)) then raise exception 'no se eliminó todo'; end if;
+  if coalesce(current_setting('gofio.purga_unidad', true), '') <> '' then raise exception 'la purga quedó abierta'; end if;
+end $$;
+
 -- un visitante SIN sesión (anon) no puede ejecutar ninguna función
 reset role;
 select pg_temp.como('', '');
