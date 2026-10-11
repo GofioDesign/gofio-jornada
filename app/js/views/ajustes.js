@@ -5,6 +5,7 @@ import { tarjetaFirma } from './firma.js';
 import { descargar } from '../lib/csv.js';
 import { plantillasObs } from '../lib/factura.js';
 import { USOS, usaPersonal } from '../lib/personal.js';
+import { limiteUsuarios, copiaActiva, cuotaMensual, caducado } from '../lib/plan.js';
 
 export async function vistaAjustes(app, seccion) {
   const e = app.e;
@@ -14,7 +15,9 @@ export async function vistaAjustes(app, seccion) {
   if (profesional && puedeVerEquipo(app.rol)) bloques.push(await puntosQr(app));
   if (gestiona) {
     const [miembros, invitaciones, exportaciones] = await Promise.all([api.miembros(app.org), api.invitaciones(app.org), api.exportaciones(app.org).catch(() => [])]);
-    bloques.push(usuarios(app, miembros, invitaciones), plan(app, miembros, exportaciones), empresa(app));
+    // El plan y lo que cuesta solo lo ve la cuenta principal (el propietario), que es quien lo paga
+    if (app.rol === 'propietario') bloques.push(plan(app, await api.extras().catch(() => [])));
+    bloques.push(usuarios(app, miembros, invitaciones), copias(app, exportaciones), empresa(app));
     if (app.facturacion) bloques.push(observaciones(app));
     if (app.rol === 'propietario') bloques.push(await accesoApi(app));
   }
@@ -152,7 +155,7 @@ export async function avisarInvitado(email) {
 }
 
 function usuarios(app, miembros, invitaciones) {
-  const max = app.e.plan?.max_usuarios;
+  const max = limiteUsuarios(app.e, app.e.plan, hoyISO(app.tz));
   const activos = miembros.filter(m => m.activo).length;
   const email = h('input', { type: 'email', required: true, placeholder: 'email@ejemplo.com', id: 'inv-email' });
   const nombre = h('input', { placeholder: 'Nombre (opcional)', id: 'inv-nombre' });
@@ -171,7 +174,7 @@ function usuarios(app, miembros, invitaciones) {
 
   return h('div.tarjeta', { id: 'usuarios' },
     h('h2', 'Usuarios'),
-    h('p.ayuda', max ? `${activos} de ${max} usuarios activos en tu plan.` : `${activos} usuarios activos.`),
+    h('p.ayuda', max ? `${activos} de ${max} ${max === 1 ? 'persona activa' : 'personas activas'} en tu plan${app.e.plan?.por_asientos ? ' (una por asiento)' : ''}.` : `${activos} personas activas.`),
     h('table.tabla', h('tbody', miembros.map(m => h('tr',
       h('td', h('strong', m.nombre || '—'), m.user_id === app.e.user_id ? h('small', ' (tú)') : null),
       h('td', m.rol === 'propietario' ? ROLES.propietario : h('select', {
@@ -192,18 +195,42 @@ function usuarios(app, miembros, invitaciones) {
     form);
 }
 
-function plan(app, miembros, exportaciones) {
-  const p = app.e.plan || {};
-  const pro = !!p.backup_auto;
+const euros = n => Number(n).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
+const contactar = (asunto, texto) => h('a', { href: 'mailto:' + CONFIG.SOPORTE_EMAIL + '?subject=' + encodeURIComponent(asunto) }, texto || CONFIG.SOPORTE_EMAIL);
+
+// Plan contratado y cuota mensual: solo para el propietario
+function plan(app, extras) {
+  const e = app.e; const p = e.plan || {};
+  const hoy = hoyISO(app.tz);
+  const max = limiteUsuarios(e, p, hoy);
+  const cuota = cuotaMensual(e, p, extras);
   return h('div.tarjeta', { id: 'plan' },
-    h('h2', 'Plan y copias de seguridad'),
-    h('p', 'Plan actual: ', h('strong', p.nombre || app.e.plan_id), app.e.plan_hasta ? ` (hasta ${app.e.plan_hasta})` : ''),
+    h('h2', 'Tu plan'),
+    h('p', 'Plan actual: ', h('strong', p.nombre || e.plan_id), e.plan_hasta ? ` (hasta ${fecha(e.plan_hasta)})` : ''),
+    caducado(e, hoy) ? h('p.aviso-fijo', 'Tu plan ha caducado: mientras lo renuevas, la app funciona como Jornada (1 persona activa). Escríbenos a ', contactar('Renovar plan'), '.') : null,
     h('ul.ventajas',
-      h('li', p.max_usuarios ? `Hasta ${p.max_usuarios} usuarios` : 'Usuarios ilimitados'),
-      h('li', pro ? 'Copia de seguridad automática diaria en tu Google Drive' : 'Copias de seguridad manuales (botón de abajo)'),
-      h('li', pro ? 'Exportación automática mensual del registro (CSV) para gestoría e Inspección' : 'Exportación manual del registro en CSV')),
-    !pro ? h('p.ayuda', 'Con Jornada Pro las copias y exportaciones se hacen solas. Escríbenos a ', h('a', { href: 'mailto:' + CONFIG.SOPORTE_EMAIL + '?subject=Jornada%20Pro' }, CONFIG.SOPORTE_EMAIL), '.') :
-      h('p.ayuda', app.e.backup_drive_carpeta ? '📁 Carpeta de Drive configurada.' : 'Falta conectar la carpeta de Google Drive: escríbenos y la dejamos lista.'),
+      h('li', max == null ? 'Personas sin límite' : p.por_asientos ? `${e.asientos} ${e.asientos === 1 ? 'asiento' : 'asientos'}: hasta ${max} ${max === 1 ? 'persona activa' : 'personas activas'}` : 'Una sola persona'),
+      h('li', copiaActiva(e, p, hoy) ? 'Copia automática para todos los asientos (cada noche en tu Google Drive)' : 'Copias de seguridad manuales'),
+      e.tester_facturacion ? h('li', 'Módulo de Facturación') : null),
+    cuota.total > 0 ? [
+      h('table.tabla', h('tbody', cuota.lineas.map(l => h('tr', h('td', l.concepto), h('td.num', euros(l.importe)))),
+        h('tr', h('td', h('strong', 'Total al mes')), h('td.num', h('strong', euros(cuota.total)))))),
+      h('p.ayuda', 'Esta cuota la paga solo la cuenta principal del equipo. Las personas que invitas no pagan nada.'),
+    ] : h('p.ayuda', 'La cuota mensual la paga solo la cuenta principal del equipo; las personas que invitas no pagan nada.'),
+    h('p.ayuda', p.por_asientos
+      ? ['Para cambiar los asientos', e.copia_auto ? '' : ', añadir la copia automática', ' o el módulo de Facturación, escríbenos a ', contactar('Jornada Pro equipo'), '.']
+      : ['¿Trabajáis varias personas? Con Jornada Pro equipo pagas por asiento y puedes añadir la copia automática. Escríbenos a ', contactar('Jornada Pro equipo'), '.']));
+}
+
+// Copias de seguridad: propietario y administradores
+function copias(app, exportaciones) {
+  const auto = copiaActiva(app.e, app.e.plan, hoyISO(app.tz));
+  return h('div.tarjeta', { id: 'copias' },
+    h('h2', 'Copias de seguridad'),
+    h('ul.ventajas',
+      h('li', auto ? 'Copia de seguridad automática diaria en tu Google Drive' : 'Copias de seguridad manuales (botón de abajo)'),
+      h('li', auto ? 'Exportación automática mensual del registro (CSV) para gestoría e Inspección' : 'Exportación manual del registro en CSV')),
+    auto ? h('p.ayuda', app.e.backup_drive_carpeta ? '📁 Carpeta de Drive configurada.' : 'Falta conectar la carpeta de Google Drive: escríbenos y la dejamos lista.') : null,
     h('div.fila-botones',
       h('button.btn.primario', {
         onclick: ev => accion(ev.currentTarget, async () => {
@@ -218,7 +245,7 @@ function plan(app, miembros, exportaciones) {
     app.e.tester_facturacion ? h('label.check', h('input', {
       type: 'checkbox', checked: app.e.usa_facturacion,
       onchange: ev => accion(null, async () => { await api.guardarEmpresa(app.org, { usa_facturacion: ev.target.checked }); await app.recargar(); }),
-    }), ' Mostrar el módulo de Facturación (acceso de tester)') : null);
+    }), ' Mostrar el módulo de Facturación') : null);
 }
 
 function empresa(app) {

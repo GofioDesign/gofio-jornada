@@ -4,6 +4,7 @@
 import { CONFIG } from '../config.js';
 import { estadoActual, tramos, totales, diaLocal, plazoConservacion } from './lib/jornada.js';
 import { esFirmaDe, deBase64 } from './lib/firma.js';
+import { limiteUsuarios } from './lib/plan.js';
 import { calcular, irpfCliente, emisorDe, categoriaDe, conceptoDe, motivoRectificativa, numeroAnterior, SIN_HUELLA } from './lib/factura.js';
 const masDias = (iso, n) => { const d = new Date(iso + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 
@@ -70,7 +71,7 @@ const supa = {
   // ---- superadministración (Gofio Design)
   async esSuperadmin() { const c = await cliente(); return ok(await c.rpc('es_superadmin')); },
   async saEmpresas() { const c = await cliente(); return ok(await c.rpc('sa_empresas')); },
-  async saCrearEmpresa(x) { const c = await cliente(); return ok(await c.rpc('sa_crear_empresa', { p_nombre: x.nombre, p_email_propietario: x.email, p_nif: x.nif || null, p_plan: x.plan, p_facturacion: !!x.facturacion })); },
+  async saCrearEmpresa(x) { const c = await cliente(); return ok(await c.rpc('sa_crear_empresa', { p_nombre: x.nombre, p_email_propietario: x.email, p_nif: x.nif || null, p_plan: x.plan, p_facturacion: !!x.facturacion, p_asientos: Number(x.asientos) || 1, p_copia_auto: !!x.copia_auto })); },
   async saInvitarPropietario(org, email) { const c = await cliente(); return ok(await c.rpc('sa_invitar_propietario', { p_org: org, p_email: email })); },
   async saDarDeBaja(org, motivo) { const c = await cliente(); return ok(await c.rpc('sa_dar_de_baja', { p_org: org, p_motivo: motivo || null })); },
   async saReactivar(org) { const c = await cliente(); return ok(await c.rpc('sa_reactivar', { p_org: org })); },
@@ -82,10 +83,11 @@ const supa = {
     const c = await clienteAviso();
     return ok(await c.auth.signInWithOtp({ email: String(email).trim().toLowerCase(), options: { shouldCreateUser: true, emailRedirectTo: location.origin + location.pathname } }));
   },
-  async saActualizarEmpresa(id, x) { const c = await cliente(); return ok(await c.rpc('sa_actualizar_empresa', { p_org: id, p_plan: x.plan, p_plan_hasta: x.plan_hasta || null, p_facturacion: !!x.facturacion })); },
+  async saActualizarEmpresa(id, x) { const c = await cliente(); return ok(await c.rpc('sa_actualizar_empresa', { p_org: id, p_plan: x.plan, p_plan_hasta: x.plan_hasta || null, p_facturacion: !!x.facturacion, p_asientos: Number(x.asientos) || 1, p_copia_auto: !!x.copia_auto })); },
   async aceptarInvitacion(token, nombre) { const c = await cliente(); return ok(await c.rpc('aceptar_invitacion', { p_token: token, p_nombre: nombre || null })); },
   async guardarEmpresa(org, datos) { const c = await cliente(); return ok(await c.from('organizaciones').update(datos).eq('id', org).select().single()); },
   async planes() { const c = await cliente(); return ok(await c.from('planes').select('*').order('orden')); },
+  async extras() { const c = await cliente(); return ok(await c.from('extras').select('*').order('orden')); },
 
   // ---- jornada
   async fichar(org, tipo, o = {}) {
@@ -268,7 +270,7 @@ function db() {
     const org = uid(), yo = 'demo-user';
     d = {
       sesion: null,
-      orgs: [{ id: org, nombre: 'Empresa de prueba', nif: '', plan_id: 'gratis', tester_facturacion: true, usa_facturacion: true,
+      orgs: [{ id: org, nombre: 'Empresa de prueba', nif: '', plan_id: 'equipo', asientos: 5, copia_auto: false, tester_facturacion: true, usa_facturacion: true,
                config: { zona_horaria: 'Atlantic/Canary', jornada_geolocalizar: true, jornada_horas_dia: 8, igic_defecto: 7, irpf_defecto: 15 } }],
       miembros: [{ org_id: org, user_id: yo, rol: 'propietario', nombre: 'Tú (demo)', activo: true },
                  { org_id: org, user_id: 'demo-2', rol: 'empleado', nombre: 'Ana Pérez', activo: true }],
@@ -285,9 +287,21 @@ function db() {
 }
 function guardar(d) { try { localStorage.setItem(K, JSON.stringify(d)); } catch { } }
 const PLANES = [
-  { id: 'gratis', nombre: 'Jornada Gratis', max_usuarios: 5, backup_auto: false, export_auto: false, precio_mes_eur: 0 },
-  { id: 'pro', nombre: 'Jornada Pro', max_usuarios: null, backup_auto: true, export_auto: true, precio_mes_eur: 0 },
+  { id: 'gratis', nombre: 'Jornada', max_usuarios: 1, por_asientos: false, precio_mes_eur: 0, precio_asiento_mes_eur: 0 },
+  { id: 'equipo', nombre: 'Jornada Pro equipo', max_usuarios: null, por_asientos: true, precio_mes_eur: 0, precio_asiento_mes_eur: 0 },
 ];
+const EXTRAS = [
+  { id: 'copia_auto', nombre: 'Copia automática', precio_mes_eur: 0, precio_asiento_mes_eur: 0 },
+  { id: 'facturacion', nombre: 'Facturación', precio_mes_eur: 0, precio_asiento_mes_eur: 0 },
+];
+// Igual que limite_usuarios en SQL
+function limitePlan(d, org) {
+  const o = d.orgs.find(x => x.id === org);
+  const max = limiteUsuarios(o, PLANES.find(p => p.id === o.plan_id), new Date().toISOString().slice(0, 10));
+  if (max != null && d.miembros.filter(x => x.org_id === org && x.activo).length >= max) {
+    const e = new Error(`Tu plan permite ${max} ${max === 1 ? 'persona activa' : 'personas activas'}. Amplía los asientos para tener a más gente.`); e.limitePlan = true; throw e;
+  }
+}
 // Igual que _cliente_de_proyecto en SQL
 function proyectoCliente(d, proyecto_id, cliente_id) {
   if (!proyecto_id) return cliente_id || null;
@@ -346,11 +360,12 @@ const demo = {
   async aceptarInvitacion() { },
   async guardarEmpresa(org, datos) { const d = db(); Object.assign(d.orgs.find(o => o.id === org), datos); guardar(d); },
   async planes() { return PLANES; },
+  async extras() { return EXTRAS; },
   // En la demo eres superadmin para poder probar el panel
   async esSuperadmin() { return true; },
   async saEmpresas() {
     const d = db();
-    return d.orgs.map(o => ({ id: o.id, nombre: o.nombre, nif: o.nif, plan_id: o.plan_id, plan_hasta: o.plan_hasta || null, tester_facturacion: !!o.tester_facturacion,
+    return d.orgs.map(o => ({ id: o.id, nombre: o.nombre, nif: o.nif, plan_id: o.plan_id, plan_hasta: o.plan_hasta || null, asientos: o.asientos || 1, copia_auto: !!o.copia_auto, tester_facturacion: !!o.tester_facturacion,
       usa_facturacion: !!o.usa_facturacion, creado_en: o.creado_en || new Date().toISOString(),
       propietario: d.miembros.find(m => m.org_id === o.id && m.rol === 'propietario') ? (d.miembros.find(m => m.org_id === o.id && m.rol === 'propietario').user_id === 'demo-user' ? d.sesion?.user?.email : 'otro') : null,
       usuarios: d.miembros.filter(m => m.org_id === o.id && m.activo).length,
@@ -387,7 +402,7 @@ const demo = {
     const email = String(x.email || '').trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error('Escribe un email válido para el propietario');
     const d = db(); const id = uid();
-    d.orgs.push({ id, nombre: x.nombre.trim(), nif: x.nif || '', plan_id: x.plan, tester_facturacion: !!x.facturacion, usa_facturacion: !!x.facturacion, config: { ...d.orgs[0].config }, creado_en: new Date().toISOString() });
+    d.orgs.push({ id, nombre: x.nombre.trim(), nif: x.nif || '', plan_id: x.plan, asientos: Number(x.asientos) || 1, copia_auto: !!x.copia_auto, tester_facturacion: !!x.facturacion, usa_facturacion: !!x.facturacion, config: { ...d.orgs[0].config }, creado_en: new Date().toISOString() });
     d.invitaciones.push({ id: uid(), org_id: id, email, rol: 'propietario', token: uid(), creada_en: new Date().toISOString(), aceptada_en: null });
     guardar(d); return id;
   },
@@ -400,9 +415,13 @@ const demo = {
   async saAnularInvitacion(org) { const d = db(); d.invitaciones = d.invitaciones.filter(i => !(i.org_id === org && i.rol === 'propietario' && !i.aceptada_en)); guardar(d); },
   async avisarInvitado() { },   // en la demo no se envían correos
   async saActualizarEmpresa(id, x) {
-    const d = db(); const o = d.orgs.find(y => y.id === id);
+    const d = db(); const o = d.orgs.find(y => y.id === id); const plan = PLANES.find(p => p.id === x.plan);
+    const asientos = plan.por_asientos ? Number(x.asientos) || 1 : 1;
+    if (!plan.por_asientos && x.copia_auto) throw new Error('La copia automática va con Jornada Pro equipo');
+    const activos = d.miembros.filter(m => m.org_id === id && m.activo).length;
+    if (activos > (plan.max_usuarios ?? asientos)) throw new Error(`La unidad tiene ${activos} personas activas: hay que desactivar a alguien antes de dejarla con menos`);
     o.usa_facturacion = !x.facturacion ? false : !o.tester_facturacion ? true : o.usa_facturacion;
-    Object.assign(o, { plan_id: x.plan, plan_hasta: x.plan_hasta || null, tester_facturacion: !!x.facturacion }); guardar(d);
+    Object.assign(o, { plan_id: x.plan, plan_hasta: x.plan_hasta || null, asientos, copia_auto: !!x.copia_auto, tester_facturacion: !!x.facturacion }); guardar(d);
   },
 
   async fichar(org, tipo, o = {}) {
@@ -575,13 +594,13 @@ const demo = {
   async miembros(org) { return db().miembros.filter(m => m.org_id === org); },
   async actualizarMiembro(org, user, datos) {
     const d = db(); const m = d.miembros.find(x => x.org_id === org && x.user_id === user);
-    if (datos.activo && !m.activo && d.miembros.filter(x => x.org_id === org && x.activo).length >= 5) { const e = new Error('Tu plan permite 5 usuarios activos.'); e.limitePlan = true; throw e; }
+    if (datos.activo && !m.activo) limitePlan(d, org);
     Object.assign(m, datos); guardar(d);
   },
   async invitaciones(org) { return db().invitaciones.filter(i => i.org_id === org); },
   async invitar(org, email, rol, nombre) {
     const d = db();
-    if (d.miembros.filter(x => x.org_id === org && x.activo).length >= 5) { const e = new Error('Tu plan permite 5 usuarios activos.'); e.limitePlan = true; throw e; }
+    limitePlan(d, org);
     const token = uid().replace(/-/g, ''); d.invitaciones.push({ id: uid(), org_id: org, email, rol, nombre, token, creada_en: new Date().toISOString() }); guardar(d); return token;
   },
   async borrarInvitacion(id) { const d = db(); d.invitaciones = d.invitaciones.filter(i => i.id !== id); guardar(d); },

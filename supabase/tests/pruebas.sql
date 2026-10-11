@@ -27,6 +27,11 @@ set role authenticated;
 select pg_temp.como('00000000-0000-0000-0000-00000000000a', 'propietario@gofio.test');
 create temp table ctx as select public.crear_organizacion('Gofio Design', '78563258L', 'Juan') as org;
 grant all on ctx to authenticated;
+-- plan Jornada (gratis): una sola persona; el equipo de prueba se pasa a Pro equipo con 5 asientos (0032)
+select pg_temp.debe_fallar($$select public.invitar((select org from ctx), 'x@gofio.test')$$, 'permite 1 persona');
+reset role;
+update organizaciones set plan_id = 'equipo', asientos = 5 where id = (select org from ctx);
+set role authenticated;
 do $$ declare v_org uuid := (select org from ctx); tok text;
 begin
   tok := public.invitar(v_org, 'Empleado@gofio.test', 'empleado', 'Pepe');
@@ -46,11 +51,13 @@ insert into clientes (org_id, codigo, nombre, direccion, localidad, lat, lng)
          ((select org from ctx), 'B00000000', 'OBRA EL JARDÍN', 'Calle Falsa 1', 'Güímar', 28.31, -16.41);
 
 -- el propietario no puede subirse de plan ni activarse facturación
-select pg_temp.debe_fallar($$update organizaciones set plan_id = 'pro' where id = (select org from ctx)$$, 'suscripción');
+select pg_temp.debe_fallar($$update organizaciones set plan_id = 'gratis' where id = (select org from ctx)$$, 'suscripción');
+select pg_temp.debe_fallar($$update organizaciones set asientos = 50 where id = (select org from ctx)$$, 'suscripción');
+select pg_temp.debe_fallar($$update organizaciones set copia_auto = true where id = (select org from ctx)$$, 'suscripción');
 select pg_temp.debe_fallar($$update organizaciones set tester_facturacion = true where id = (select org from ctx)$$, 'testers');
 select pg_temp.debe_fallar($$update organizaciones set usa_facturacion = true where id = (select org from ctx)$$, 'testers');
 
--- ===== 2. Límite del plan gratis (5 usuarios) =====
+-- ===== 2. Límite de asientos (Pro equipo con 5) =====
 reset role;
 insert into auth.users select ('00000000-0000-0000-0000-0000000001' || lpad(i::text, 2, '0'))::uuid, 'u' || i || '@t' from generate_series(1, 5) i;
 do $$ begin
@@ -60,7 +67,23 @@ do $$ begin
     raise exception 'DEBÍA FALLAR límite';
   exception when others then if sqlerrm not like '%permite 5%' then raise; end if;
   end;
+  -- plan caducado: vuelve al límite del plan gratis (1 persona)
   delete from miembros where user_id::text like '00000000-0000-0000-0000-0000000001%';
+  update organizaciones set plan_hasta = current_date - 1 where id = (select org from ctx);
+  if public.limite_usuarios((select org from ctx)) <> 1 then raise exception 'plan caducado'; end if;
+  begin
+    insert into miembros (org_id, user_id, rol) values ((select org from ctx), '00000000-0000-0000-0000-000000000101', 'empleado');
+    raise exception 'DEBÍA FALLAR caducado';
+  exception when others then if sqlerrm not like '%permite 1 persona%' then raise; end if;
+  end;
+  update organizaciones set plan_hasta = null where id = (select org from ctx);
+  if public.limite_usuarios((select org from ctx)) <> 5 then raise exception 'asientos'; end if;
+  -- copia automática: solo con Pro equipo y el plan en vigor
+  update organizaciones set copia_auto = true, backup_drive_carpeta = 'x' where id = (select org from ctx);
+  if not public.copia_activa((select org from ctx)) or not exists (select 1 from v_copias_pendientes where org_id = (select org from ctx)) then raise exception 'copia activa'; end if;
+  update organizaciones set plan_hasta = current_date - 1 where id = (select org from ctx);
+  if public.copia_activa((select org from ctx)) then raise exception 'copia con plan caducado'; end if;
+  update organizaciones set copia_auto = false, backup_drive_carpeta = null, plan_hasta = null where id = (select org from ctx);
 end $$;
 
 -- ===== 3. Jornada: fichajes con reglas de estado =====
@@ -544,18 +567,20 @@ set role authenticated;
 select pg_temp.como('00000000-0000-0000-0000-0000000000aa', 'sa@gofio.test');
 select pg_temp.debe_fallar($$select public.sa_crear_empresa('Otra', 'no-es-email')$$, 'email');
 select pg_temp.debe_fallar($$select public.sa_crear_empresa('Otra', 'a@b.es', null, 'oro')$$, 'Plan');
-insert into unidad select public.sa_crear_empresa('Unidad Norte', ' Nueva@Unidad.test ', 'B12345678', 'pro', true);
+select pg_temp.debe_fallar($$select public.sa_crear_empresa('Otra', 'a@b.es', null, 'gratis', false, 1, true)$$, 'copia automática');
+select pg_temp.debe_fallar($$select public.sa_crear_empresa('Otra', 'a@b.es', null, 'equipo', false, 0)$$, 'al menos 1');
+insert into unidad select public.sa_crear_empresa('Unidad Norte', ' Nueva@Unidad.test ', 'B12345678', 'equipo', true, 3, true);
 do $$ declare e record; begin
   if not public.es_superadmin() then raise exception 'superadmin'; end if;
   select * into e from public.sa_empresas() where id = (select id from unidad);
-  if e.nombre <> 'Unidad Norte' or e.plan_id <> 'pro' or not e.tester_facturacion or not e.usa_facturacion
+  if e.nombre <> 'Unidad Norte' or e.plan_id <> 'equipo' or e.asientos <> 3 or not e.copia_auto or not e.tester_facturacion or not e.usa_facturacion
      or e.invitacion_pendiente <> 'nueva@unidad.test' or e.usuarios <> 0 then raise exception 'unidad creada: %', to_jsonb(e); end if;
   if (select count(*) from public.sa_empresas()) < 2 then raise exception 'sa_empresas no ve todas'; end if;
   -- el superadmin no es miembro: no ve sus datos por la app
   if exists (select 1 from organizaciones where id = (select id from unidad)) then raise exception 'superadmin ve la unidad por RLS'; end if;
   perform public.sa_actualizar_empresa((select id from unidad), 'gratis', '2027-01-31', false);
   select * into e from public.sa_empresas() where id = (select id from unidad);
-  if e.plan_id <> 'gratis' or e.plan_hasta <> '2027-01-31' or e.tester_facturacion or e.usa_facturacion then raise exception 'actualizar: %', to_jsonb(e); end if;
+  if e.plan_id <> 'gratis' or e.plan_hasta <> '2027-01-31' or e.asientos <> 1 or e.copia_auto or e.tester_facturacion or e.usa_facturacion then raise exception 'actualizar: %', to_jsonb(e); end if;
 end $$;
 -- cambiar el email de la invitación del propietario y anularla (0026)
 do $$ begin
@@ -580,6 +605,9 @@ do $$ begin
   if (select propietario from public.sa_empresas() where id = (select id from unidad)) <> 'nueva@unidad.test'
      or (select invitacion_pendiente from public.sa_empresas() where id = (select id from unidad)) is not null then raise exception 'propietario tras aceptar'; end if;
 end $$;
+-- no se puede dejar una unidad con menos asientos que personas activas (Gofio Design tiene 2)
+select pg_temp.debe_fallar($$select public.sa_actualizar_empresa((select org from ctx), 'gratis')$$, 'personas activas');
+select pg_temp.debe_fallar($$select public.sa_actualizar_empresa((select org from ctx), 'equipo', null, false, 1)$$, 'personas activas');
 reset role;
 set role authenticated;
 

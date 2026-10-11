@@ -4,9 +4,16 @@ import { api } from '../api.js';
 import { h, montar, accion, aviso, fecha } from '../ui.js';
 import { descargar } from '../lib/csv.js';
 import { avisarInvitado } from './ajustes.js';
+import { cuotaMensual } from '../lib/plan.js';
 
 export async function vistaAdmin(app) {
-  const planes = await api.planes();
+  const [planes, extras] = await Promise.all([api.planes(), api.extras()]);
+  const porAsientos = id => !!planes.find(p => p.id === id)?.por_asientos;
+  // Asientos y copia automática solo tienen sentido en un plan por asientos (Pro equipo)
+  const camposAsientos = (plan, asientos, copia) => {
+    const pintar = () => { const si = porAsientos(plan.value); asientos.disabled = !si; copia.disabled = !si; if (!si) { asientos.value = 1; copia.checked = false; } };
+    plan.addEventListener('change', pintar); pintar();
+  };
   const nombrePlan = id => planes.find(p => p.id === id)?.nombre || id;
   const lista = h('div');
   const buscar = h('input', { type: 'search', placeholder: 'Buscar unidad, NIF o email…', 'aria-label': 'Buscar' });
@@ -34,11 +41,15 @@ export async function vistaAdmin(app) {
   const editar = (e) => {
     const plan = h('select', { 'aria-label': 'Plan' }, planes.map(p => h('option', { value: p.id, selected: p.id === e.plan_id }, p.nombre)));
     const hasta = h('input', { type: 'date', value: e.plan_hasta || '', 'aria-label': 'Plan hasta' });
+    const asientos = h('input', { type: 'number', min: 1, step: 1, value: e.asientos || 1, 'aria-label': 'Asientos' });
+    const copia = h('input', { type: 'checkbox', checked: e.copia_auto });
     const fact = h('input', { type: 'checkbox', checked: e.tester_facturacion });
+    camposAsientos(plan, asientos, copia);
     return h('div.sa-editar',
-      h('label', 'Plan', plan), h('label', 'Hasta (vacío: sin fin)', hasta), h('label.check', fact, ' Facturación'),
+      h('label', 'Plan', plan), h('label', 'Asientos', asientos), h('label', 'Hasta (vacío: sin fin)', hasta),
+      h('label.check', copia, ' Copia automática (todos los asientos)'), h('label.check', fact, ' Facturación'),
       h('button.btn', { onclick: ev => accion(ev.currentTarget, async () => {
-        await api.saActualizarEmpresa(e.id, { plan: plan.value, plan_hasta: hasta.value, facturacion: fact.checked });
+        await api.saActualizarEmpresa(e.id, { plan: plan.value, plan_hasta: hasta.value, asientos: asientos.value, copia_auto: copia.checked, facturacion: fact.checked });
         aviso(`${e.nombre} actualizada`, 'ok'); await cargar();
       }) }, 'Guardar'));
   };
@@ -81,6 +92,7 @@ export async function vistaAdmin(app) {
       } }, 'Dar de baja'));
   };
 
+  const cuota = e => { const t = cuotaMensual(e, planes.find(p => p.id === e.plan_id), extras).total; return t > 0 ? `${t.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}/mes` : null; };
   const titulo = h('h2');
   const pintar = () => {
     titulo.textContent = `Todas las unidades (${empresas.length})`;
@@ -89,8 +101,9 @@ export async function vistaAdmin(app) {
     montar(lista, r.length ? h('div.lista', r.map(e => h('details.item.sa-unidad',
       h('summary',
         h('strong', e.nombre), e.baja_en ? h('span.etiqueta.baja', 'de baja') : null, ' ',
-        h('span.ayuda', [e.nif, nombrePlan(e.plan_id) + (e.plan_hasta ? ` hasta ${fecha(e.plan_hasta)}` : ''), e.tester_facturacion ? 'facturación' : null,
-          `${e.usuarios} ${e.usuarios === 1 ? 'usuario' : 'usuarios'}`].filter(Boolean).join(' · ')),
+        h('span.ayuda', [e.nif, nombrePlan(e.plan_id) + (e.plan_hasta ? ` hasta ${fecha(e.plan_hasta)}` : ''),
+          porAsientos(e.plan_id) ? `${e.usuarios} de ${e.asientos} asientos` : `${e.usuarios} ${e.usuarios === 1 ? 'usuario' : 'usuarios'}`,
+          e.copia_auto ? 'copia automática' : null, e.tester_facturacion ? 'facturación' : null, cuota(e)].filter(Boolean).join(' · ')),
         h('div.ayuda', e.propietario ? `Propietario: ${e.propietario}` : e.invitacion_pendiente ? `Invitación pendiente: ${e.invitacion_pendiente}` : 'Sin propietario',
           ` · alta ${fecha(String(e.creado_en).slice(0, 10))}`, e.ultimo_fichaje ? ` · último fichaje ${fecha(String(e.ultimo_fichaje).slice(0, 10))}` : '')),
       e.baja_en ? null : invitacion(e), e.baja_en ? null : editar(e), ciclo(e)))) : h('p.vacio', 'No hay unidades con ese filtro.'));
@@ -102,19 +115,24 @@ export async function vistaAdmin(app) {
   const nif = h('input', { id: 'sa-nif', placeholder: 'Opcional' });
   const email = h('input', { id: 'sa-email', type: 'email', required: true, placeholder: 'email@unidad.com' });
   const plan = h('select', { id: 'sa-plan' }, planes.map(p => h('option', { value: p.id }, p.nombre)));
+  const asientos = h('input', { id: 'sa-asientos', type: 'number', min: 1, step: 1, value: 1 });
+  const copiaAuto = h('input', { id: 'sa-copia', type: 'checkbox' });
   const fact = h('input', { id: 'sa-fact', type: 'checkbox' });
+  camposAsientos(plan, asientos, copiaAuto);
   const form = h('form.formulario', {
     onsubmit: ev => {
       ev.preventDefault();
       accion(form.querySelector('button'), async () => {
-        await api.saCrearEmpresa({ nombre: nombre.value, nif: nif.value, email: email.value, plan: plan.value, facturacion: fact.checked });
+        await api.saCrearEmpresa({ nombre: nombre.value, nif: nif.value, email: email.value, plan: plan.value, asientos: asientos.value, copia_auto: copiaAuto.checked, facturacion: fact.checked });
         if (await avisarInvitado(email.value)) aviso(`Unidad creada. Le hemos enviado a ${email.value.trim()} un correo para entrar y aceptarla.`, 'ok');
-        form.reset(); await cargar();
+        form.reset(); plan.dispatchEvent(new Event('change')); await cargar();
       });
     },
   },
     h('div.dos', h('div', h('label', { for: 'sa-nombre' }, 'Nombre de la unidad'), nombre), h('div', h('label', { for: 'sa-nif' }, 'NIF'), nif)),
     h('div.dos', h('div', h('label', { for: 'sa-email' }, 'Email del propietario'), email), h('div', h('label', { for: 'sa-plan' }, 'Plan'), plan)),
+    h('div.dos', h('div', h('label', { for: 'sa-asientos' }, 'Asientos (Pro equipo)'), asientos), h('div')),
+    h('label.check', copiaAuto, ' Copia automática (todos los asientos)'),
     h('label.check', fact, ' Activar facturación'),
     h('p.ayuda', 'La unidad se crea vacía. Su propietario recibe un correo con el enlace para entrar, acepta la invitación y completa los datos de la empresa en Ajustes.'),
     h('button.btn.primario', { type: 'submit' }, 'Dar de alta'));
