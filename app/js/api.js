@@ -3,6 +3,7 @@
 //  - Modo DEMO: sin configurar nada; guarda en este navegador para probar la app.
 import { CONFIG } from '../config.js';
 import { estadoActual, tramos, totales, diaLocal } from './lib/jornada.js';
+import { esFirmaDe, deBase64 } from './lib/firma.js';
 import { calcular, irpfCliente, emisorDe, categoriaDe, conceptoDe, motivoRectificativa, numeroAnterior, SIN_HUELLA } from './lib/factura.js';
 const masDias = (iso, n) => { const d = new Date(iso + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 
@@ -31,7 +32,7 @@ async function clienteAviso() {
 
 function ok({ data, error }) {
   if (error) {
-    const e = new Error(traducir(error.message)); e.limitePlan = error.hint === 'LIMITE_PLAN'; throw e;
+    const e = new Error(traducir(error.message)); e.limitePlan = error.hint === 'LIMITE_PLAN'; e.hint = error.hint; throw e;
   }
   return data;
 }
@@ -40,6 +41,9 @@ function traducir(m = '') {
   if (/duplicate key.*horas_facturadas/i.test(m)) return 'Algunas de esas horas ya estaban facturadas';
   if (/duplicate key/i.test(m)) return 'Ya existe un registro con ese código';
   if (/Failed to fetch|NetworkError/i.test(m)) return 'Sin conexión. Inténtalo de nuevo.';
+  if (/after (\d+) seconds?/i.test(m)) return `Espera ${m.match(/after (\d+) seconds?/i)[1]} segundos antes de pedir otro código`;
+  if (/token has expired or is invalid|otp.*(expired|invalid)/i.test(m)) return 'El código no es correcto o ha caducado';
+  if (/sms provider|phone provider|unsupported phone/i.test(m)) return 'El envío de SMS no está configurado. Usa el código por correo.';
   return m;
 }
 
@@ -82,8 +86,37 @@ const supa = {
   // ---- jornada
   async fichar(org, tipo, o = {}) {
     const c = await cliente();
-    return ok(await c.rpc('fichar', { p_org: org, p_tipo: tipo, p_lat: o.lat ?? null, p_lng: o.lng ?? null, p_precision: o.precision ?? null, p_cliente: o.cliente_id ?? null, p_nota: o.nota ?? null, p_proyecto: o.proyecto_id ?? null }));
+    return ok(await c.rpc('fichar', { p_org: org, p_tipo: tipo, p_lat: o.lat ?? null, p_lng: o.lng ?? null, p_precision: o.precision ?? null, p_cliente: o.cliente_id ?? null, p_nota: o.nota ?? null, p_proyecto: o.proyecto_id ?? null, p_qr: o.qr ?? null }));
   },
+  // ---- puntos de fichaje con QR
+  async puntosQr(org) { const c = await cliente(); return ok(await c.from('puntos_qr').select('*').eq('org_id', org).order('nombre')); },
+  async guardarPuntoQr(org, x) {
+    const c = await cliente(); const datos = { nombre: x.nombre, cliente_id: x.cliente_id || null, proyecto_id: x.proyecto_id || null, activo: x.activo !== false };
+    return ok(x.id ? await c.from('puntos_qr').update(datos).eq('id', x.id).select().single()
+      : await c.from('puntos_qr').insert({ ...datos, org_id: org }).select().single());
+  },
+  async renovarQr(id) { const c = await cliente(); return ok(await c.rpc('renovar_qr', { p_id: id })); },
+  async puntoQr(token) { const c = await cliente(); return ok(await c.rpc('punto_qr', { p_token: token }))[0]; },
+
+  // ---- firma mensual del registro
+  async registroParaFirmar(org, periodo) { const c = await cliente(); return ok(await c.rpc('registro_para_firmar', { p_org: org, p_periodo: periodo })); },
+  // Código de un solo uso de Supabase Auth a la propia cuenta. SMS: si la cuenta aún no tiene teléfono, primero se confirma.
+  async enviarCodigoFirma(canal, telefono) {
+    const c = await cliente(); const { data: { user } } = await c.auth.getUser();
+    if (canal === 'EMAIL') { ok(await c.auth.signInWithOtp({ email: user.email, options: { shouldCreateUser: false } })); return { paso: 'firma', destino: user.email }; }
+    if (user.phone) { const phone = '+' + user.phone.replace(/^\+/, ''); ok(await c.auth.signInWithOtp({ phone, options: { shouldCreateUser: false } })); return { paso: 'firma', destino: phone }; }
+    if (!telefono) return { paso: 'telefono' };
+    ok(await c.auth.updateUser({ phone: telefono })); return { paso: 'confirmar_telefono', destino: telefono };
+  },
+  async confirmarCodigoFirma(canal, token, { paso, destino } = {}) {
+    const c = await cliente(); token = String(token).replace(/\D/g, '');
+    if (canal === 'EMAIL') return ok(await c.auth.verifyOtp({ email: destino, token, type: 'email' }));
+    return ok(await c.auth.verifyOtp({ phone: destino, token, type: paso === 'confirmar_telefono' ? 'phone_change' : 'sms' }));
+  },
+  async firmarRegistro(org, periodo, huella, canal) { const c = await cliente(); return ok(await c.rpc('firmar_registro', { p_org: org, p_periodo: periodo, p_huella: huella, p_canal: canal })); },
+  async firmarConCertificado(org, periodo, huella, firma) { const c = await cliente(); return ok(await c.rpc('firmar_registro_certificado', { p_org: org, p_periodo: periodo, p_huella: huella, p_firma: firma })); },
+  async estadoFirmas(org, periodo) { const c = await cliente(); return ok(await c.rpc('estado_firmas', { p_org: org, p_periodo: periodo })); },
+  async firma(id) { const c = await cliente(); return ok(await c.from('firmas_registro').select('*').eq('id', id).single()); },
   async fichajes(org, { desde, hasta, user } = {}) {
     const c = await cliente();
     // Con su anulación, si la tiene (relación 1 a 1 con fichajes_anulados)
@@ -235,6 +268,31 @@ function proyectoCliente(d, proyecto_id, cliente_id) {
   return p.cliente_id || cliente_id || null;
 }
 const espera = (ms = 60) => new Promise(r => setTimeout(r, ms));
+const tokenDemo = () => Array.from(crypto.getRandomValues(new Uint8Array(18)), b => b.toString(16).padStart(2, '0')).join('');
+const hm = m => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
+// Documento del mes en la demo: mismo formato que _documento_registro en SQL
+async function documentoDemo(d, org, user, periodo) {
+  const o = d.orgs.find(x => x.id === org); const m = d.miembros.find(x => x.org_id === org && x.user_id === user) || {};
+  const tz = o.config?.zona_horaria || 'Atlantic/Canary'; const hasta = masDias(masDias(periodo, 32).slice(0, 8) + '01', -1);
+  const dias = (await demo.resumen(org, periodo, hasta, user)).filter(r => r.user_id === user && r.dia >= periodo && r.dia <= hasta);
+  const hhmm = x => x ? new Date(x).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: tz }) : '';
+  const minutos = dias.reduce((s, r) => s + r.minutos_trabajo, 0);
+  const documento = 'REGISTRO DE JORNADA\n' + `Empresa: ${o.nombre}${o.nif ? ' · NIF ' + o.nif : ''}\n` + `Persona: ${m.nombre || '—'}${m.nif ? ' · NIF ' + m.nif : ''}\n`
+    + `Periodo: del ${periodo} al ${hasta} (hora de ${tz})\n\n` + 'Día;Entrada;Salida;Trabajo;Pausas;Desplazamientos;Correcciones\n'
+    + dias.map(r => [r.dia, hhmm(r.primera_entrada), r.abierta ? 'sin cerrar' : hhmm(r.ultima_salida), hm(r.minutos_trabajo), hm(r.minutos_pausa), hm(r.minutos_desplazamiento), r.correcciones].join(';') + '\n').join('')
+    + `\nTotal: ${hm(minutos)} de trabajo en ${dias.length} ${dias.length === 1 ? 'día' : 'días'}\n`;
+  const huella = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(documento))), b => b.toString(16).padStart(2, '0')).join('');
+  return { documento, huella, dias: dias.length, minutos };
+}
+async function firmarDemo(org, periodo, huella, metodo, destino, firma_cms) {
+  const d = db(); const r = await documentoDemo(d, org, 'demo-user', periodo);
+  if (!r.dias) throw new Error('No hay jornadas que firmar en ese mes');
+  if (huella !== r.huella) throw new Error('El registro ha cambiado mientras lo mirabas. Vuelve a abrirlo antes de firmar.');
+  d.firmas = d.firmas || [];
+  if (d.firmas.some(f => f.org_id === org && f.user_id === 'demo-user' && f.periodo === periodo && f.huella === huella)) throw new Error('Ya has firmado este registro');
+  const f = { id: uid(), org_id: org, user_id: 'demo-user', periodo, ...r, metodo, destino, firma_cms, firmado_en: new Date().toISOString() };
+  d.firmas.push(f); guardar(d); return f;
+}
 
 const demo = {
   async sesion() { return db().sesion; },
@@ -303,10 +361,15 @@ const demo = {
     if (tipo === 'SALIDA') { if (e.estado === 'FUERA') err('No has iniciado la jornada'); if (e.desplazamiento) add('DESPLAZAMIENTO_FIN', { cliente_id: e.desplazamiento.cliente_id }); }
     if (tipo === 'DESPLAZAMIENTO_INICIO') { if (e.desplazamiento) err('Ya hay un desplazamiento en curso'); if (e.estado === 'FUERA') add('ENTRADA'); if (e.estado === 'PAUSA') add('REANUDAR'); }
     if (tipo === 'DESPLAZAMIENTO_FIN' && !e.desplazamiento) err('No hay ningún desplazamiento en curso');
+    // Igual que fichar(p_qr) en SQL: el punto da el cliente o proyecto si no se elige otro
+    const punto = o.qr ? (d.puntosQr || []).find(p => p.token === o.qr && p.org_id === org && p.activo !== false) : null;
+    if (o.qr && !punto) err('Este código QR no es de tu empresa o ya no está activo');
+    if (punto && ['ENTRADA', 'CAMBIO_CLIENTE'].includes(tipo) && !o.cliente_id && !o.proyecto_id) o = { ...o, cliente_id: punto.cliente_id, proyecto_id: punto.proyecto_id };
+    if (punto && tipo === 'DESPLAZAMIENTO_FIN' && !o.cliente_id) o = { ...o, cliente_id: punto.cliente_id };
     const proyecto_id = ['ENTRADA', 'CAMBIO_CLIENTE'].includes(tipo) ? o.proyecto_id || null : null;
     if (proyecto_id) o = { ...o, cliente_id: proyectoCliente(d, proyecto_id, o.cliente_id) };
     if (tipo === 'CAMBIO_CLIENTE' && (e.estado !== 'TRABAJANDO' || !(o.cliente_id || proyecto_id))) err('Elige un cliente o un proyecto con la jornada iniciada');
-    add(tipo, { cliente_id: o.cliente_id ?? (tipo === 'DESPLAZAMIENTO_FIN' ? e.desplazamiento?.cliente_id : null), proyecto_id, nota: o.nota ?? null });
+    add(tipo, { cliente_id: o.cliente_id ?? (tipo === 'DESPLAZAMIENTO_FIN' ? e.desplazamiento?.cliente_id : null), proyecto_id, nota: o.nota ?? null, punto_id: punto?.id || null });
     d.fichajes.push(...nuevos); guardar(d); return nuevos;
   },
   async fichajes(org, { user } = {}) { return db().fichajes.filter(f => f.org_id === org && (!user || f.user_id === user)).sort((a, b) => a.momento.localeCompare(b.momento)); },
@@ -354,6 +417,61 @@ const demo = {
     guardar(d); return n;
   },
   async correccionesPendientes(org) { return db().fichajes.filter(f => f.org_id === org && f.estado === 'PENDIENTE'); },
+  // ---- puntos QR (demo)
+  async puntosQr(org) { return (db().puntosQr || []).filter(p => p.org_id === org).sort((a, b) => a.nombre.localeCompare(b.nombre)); },
+  async guardarPuntoQr(org, x) {
+    if (!String(x.nombre || '').trim()) throw new Error('Escribe un nombre para el punto');
+    const d = db(); d.puntosQr = d.puntosQr || [];
+    const datos = { nombre: x.nombre.trim(), cliente_id: x.cliente_id || null, proyecto_id: x.proyecto_id || null, activo: x.activo !== false };
+    let p = x.id && d.puntosQr.find(y => y.id === x.id);
+    if (p) Object.assign(p, datos); else { p = { id: uid(), org_id: org, token: tokenDemo(), creado_en: new Date().toISOString(), ...datos }; d.puntosQr.push(p); }
+    guardar(d); return p;
+  },
+  async renovarQr(id) { const d = db(); const p = d.puntosQr.find(y => y.id === id); p.token = tokenDemo(); guardar(d); return p.token; },
+  async puntoQr(token) {
+    const p = (db().puntosQr || []).find(y => y.token === token && y.activo !== false);
+    if (!p) throw new Error('Este código QR no es de tu empresa o ya no está activo');
+    return p;
+  },
+
+  // ---- firma del registro (demo: el código siempre es 123456)
+  async registroParaFirmar(org, periodo) {
+    const d = db(); const r = await documentoDemo(d, org, 'demo-user', periodo);
+    const f = (d.firmas || []).filter(x => x.org_id === org && x.user_id === 'demo-user' && x.periodo === periodo).at(-1);
+    const o = d.orgs.find(x => x.id === org);
+    return { ...r, periodo, cerrado: masDias(periodo, 32).slice(0, 8) + '01' <= diaLocal(Date.now(), o.config?.zona_horaria),
+      vigente: !!f && f.huella === r.huella, firma: f ? { id: f.id, metodo: f.metodo, destino: f.destino, firmado_en: f.firmado_en, huella: f.huella } : null };
+  },
+  async enviarCodigoFirma(canal, telefono) {
+    const destino = canal === 'EMAIL' ? db().sesion?.user?.email || 'demo@ejemplo.com' : telefono || '+34600000000';
+    return { paso: 'firma', destino, demo: true };
+  },
+  async confirmarCodigoFirma(_canal, token) {
+    if (String(token).replace(/\D/g, '') !== '123456') throw new Error('El código no es correcto o ha caducado');
+    const d = db(); d.codigoFirma = Date.now(); guardar(d);
+  },
+  async firmarRegistro(org, periodo, huella, canal) {
+    if (Date.now() - (db().codigoFirma || 0) > 600000) throw Object.assign(new Error('Escribe el código que te hemos enviado antes de firmar'), { hint: 'CODIGO_FIRMA' });
+    return firmarDemo(org, periodo, huella, canal, canal === 'EMAIL' ? db().sesion?.user?.email || 'demo@ejemplo.com' : '+34600000000', null);
+  },
+  async firmarConCertificado(org, periodo, huella, firma) {
+    const r = await documentoDemo(db(), org, 'demo-user', periodo);
+    if (!(await esFirmaDe(deBase64(firma), r.documento))) throw new Error('Esa firma no es del registro de este mes. Firma el documento que has descargado, sin cambiarlo.');
+    return firmarDemo(org, periodo, huella, 'CERTIFICADO', null, firma);
+  },
+  async estadoFirmas(org, periodo) {
+    const d = db(); const out = [];
+    for (const m of d.miembros.filter(x => x.org_id === org)) {
+      const r = await documentoDemo(d, org, m.user_id, periodo);
+      const f = (d.firmas || []).filter(x => x.org_id === org && x.user_id === m.user_id && x.periodo === periodo).at(-1);
+      if (!r.dias && !f) continue;
+      out.push({ user_id: m.user_id, nombre: m.nombre, dias: r.dias, minutos: r.minutos, firma_id: f?.id || null, metodo: f?.metodo || null,
+        destino: f?.destino || null, firmado_en: f?.firmado_en || null, vigente: !!f && f.huella === r.huella });
+    }
+    return out;
+  },
+  async firma(id) { return (db().firmas || []).find(f => f.id === id); },
+
   async revisarCorreccion(id, aprobar) { const d = db(); const f = d.fichajes.find(x => x.id === id); f.estado = aprobar ? 'APROBADA' : 'RECHAZADA'; guardar(d); },
 
   async clientes(org) { return db().clientes.filter(c => c.org_id === org).sort((a, b) => a.nombre.localeCompare(b.nombre)); },

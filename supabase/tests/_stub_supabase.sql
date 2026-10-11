@@ -11,8 +11,10 @@ create schema auth;
 create table auth.users (id uuid primary key, email text);
 create function auth.uid() returns uuid language sql stable as
   $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
+-- Como en Supabase, los claims completos van en request.jwt.claims (p. ej. «amr» o «phone»)
 create function auth.jwt() returns jsonb language sql stable as
-  $$ select jsonb_build_object('email', current_setting('request.jwt.claim.email', true)) $$;
+  $$ select jsonb_build_object('email', current_setting('request.jwt.claim.email', true))
+         || coalesce(nullif(current_setting('request.jwt.claims', true), '')::jsonb, '{}'::jsonb) $$;
 grant usage on schema auth to anon, authenticated, service_role;
 grant usage on schema public to anon, authenticated, service_role;
 alter default privileges in schema public grant all on tables to authenticated, service_role;

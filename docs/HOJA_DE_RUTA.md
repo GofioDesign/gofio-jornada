@@ -24,6 +24,9 @@ La hoja «Gofio Facturación» v7 **sigue funcionando** mientras tanto. No se ap
   4. anota el resultado en `exportaciones`.
 - [ ] Cobro del plan Pro (Stripe Checkout + webhook que actualiza `plan_id` y `plan_hasta`).
 - [ ] Aviso a quien lleva más de X horas sin fichar la salida (notificación push o email).
+- [x] Fichar con código QR por sitio (taller, local, obra), que se puede cambiar si alguien lo fotografía.
+- [x] Firma mensual del registro por cada persona: código por correo o SMS, o certificado digital (AutoFirma).
+- [ ] QR que cambia cada pocos segundos en una pantalla (modo quiosco), para que no sirva una foto.
 
 ## Fase 2 · Facturación para testers (paridad con la v7)
 Por orden de uso real:

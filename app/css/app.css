@@ -316,3 +316,16 @@ th button.orden:hover { text-decoration: underline; }
 body.modo-sa .barra { background: #3b2a55; }
 .etiqueta.sa { background: #e9ddff; color: #3b2a55; }
 .sa-invitacion { margin: .5rem 0; }
+
+/* Firma del registro */
+.documento-firma { max-height: 40vh; overflow: auto; margin: .5rem 0; padding: .6rem; background: var(--fondo); border-radius: 6px; font-size: .78rem; line-height: 1.35; white-space: pre-wrap; word-break: break-word; }
+.huella code { word-break: break-all; font-size: .75rem; }
+.firma-zona { margin-top: .75rem; }
+.botones-firma { display: grid; gap: .5rem; }
+.ok-firma { color: var(--ok); font-weight: 600; }
+.aviso-firma { color: var(--pausa); }
+input.codigo { font-size: 1.4rem; letter-spacing: .3em; text-align: center; max-width: 12rem; }
+ol.pasos { padding-left: 1.2rem; display: grid; gap: .6rem; }
+ol.pasos input[type=file] { display: block; margin-top: .3rem; }
+/* Códigos QR */
+.item.inactivo { opacity: .55; }
