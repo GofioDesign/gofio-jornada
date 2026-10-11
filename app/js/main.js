@@ -9,6 +9,8 @@ import { vistaTiempos } from './views/tiempos.js';
 import { vistaAjustes } from './views/ajustes.js';
 import { vistaFacturacion } from './views/facturacion.js';
 import { vistaAdmin } from './views/admin.js';
+import { vistaPersonal } from './views/personal.js';
+import { usaPersonal } from './lib/personal.js';
 
 const $vista = document.getElementById('vista');
 const $menu = document.getElementById('menu');
@@ -18,6 +20,8 @@ export const app = {
   empresas: [], org: null,
   get e() { return this.empresas.find(x => x.id === this.org); },
   get rol() { return this.e?.rol; },
+  get uso() { return this.e?.config?.uso || null; },   // sondeo inicial: personal, profesional, ambos o indeciso
+  get miTiempo() { return usaPersonal(this.uso) || preferencia('mi-tiempo') === 'si'; },
   get tz() { return this.e?.config?.zona_horaria || 'Atlantic/Canary'; },
   get facturacion() { return !!(this.e?.tester_facturacion && this.e?.usa_facturacion && ['propietario', 'admin', 'gestoria'].includes(this.rol)); },
   async recargar() { await cargarEmpresas(); router(); },
@@ -54,8 +58,13 @@ function pintarMenu(ruta, modoSA = false) {
   const items = modoSA ? [
     ['#/sa', 'Unidades', 'equipo'],
     app.e && ['#/', 'Volver a mi empresa', 'reloj'],
-  ].filter(Boolean) : [
+  ].filter(Boolean) : app.uso === 'personal' ? [
+    ['#/personal', 'Mi tiempo', 'crono'],
+    ['#/jornada', 'Jornada', 'reloj'],
+    ['#/ajustes', 'Ajustes', 'ajustes'],
+  ] : [
     ['#/', 'Jornada', 'reloj'],
+    app.miTiempo && ['#/personal', 'Mi tiempo', 'crono'],
     ['#/clientes', 'Clientes', 'pin'],
     ['#/proyectos', 'Proyectos', 'carpeta'],
     puedeVerEquipo(app.rol) && ['#/equipo', 'Equipo', 'equipo'],
@@ -79,6 +88,8 @@ async function router() {
       montar($vista, await vistaAdmin(app)); $vista.focus?.(); return;
     }
     if (!app.e) { pintarCabecera(); $menu.hidden = true; return montar($vista, await vistaAlta(app)); }
+    // Uso personal: se entra por «Mi tiempo» (salvo si se abrió desde una etiqueta NFC, que pregunta en la Jornada)
+    if (app.uso === 'personal' && ruta === '#/' && !app.nfc) { location.replace('#/personal'); return; }
     pintarCabecera(); pintarMenu(ruta);
     const [, seccion, id, sub] = ruta.replace(/^#\/?/, '#/').split('/');
     let v;
@@ -86,6 +97,7 @@ async function router() {
       case 'clientes': v = id ? await vistaCliente(app, id) : await vistaClientes(app); break;
       case 'proyectos': v = id ? await vistaProyecto(app, id) : await vistaProyectos(app); break;
       case 'equipo': v = puedeVerEquipo(app.rol) ? await vistaEquipo(app) : null; break;
+      case 'personal': v = await vistaPersonal(app); break;
       case 'tiempos': v = puedeVerEquipo(app.rol) ? await vistaTiempos(app) : null; break;
       case 'ajustes': v = await vistaAjustes(app, id); break;
       case 'admin': location.replace('#/sa'); return;   // antigua dirección del panel

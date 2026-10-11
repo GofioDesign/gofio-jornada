@@ -2,7 +2,7 @@
 //  - Modo SUPABASE: config.js con URL y clave pública.
 //  - Modo DEMO: sin configurar nada; guarda en este navegador para probar la app.
 import { CONFIG } from '../config.js';
-import { estadoActual, tramos, totales, diaLocal } from './lib/jornada.js';
+import { estadoActual, tramos, totales, diaLocal, plazoConservacion } from './lib/jornada.js';
 import { calcular, irpfCliente, emisorDe, categoriaDe, conceptoDe, motivoRectificativa, numeroAnterior, SIN_HUELLA } from './lib/factura.js';
 const masDias = (iso, n) => { const d = new Date(iso + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 
@@ -68,6 +68,10 @@ const supa = {
   async saEmpresas() { const c = await cliente(); return ok(await c.rpc('sa_empresas')); },
   async saCrearEmpresa(x) { const c = await cliente(); return ok(await c.rpc('sa_crear_empresa', { p_nombre: x.nombre, p_email_propietario: x.email, p_nif: x.nif || null, p_plan: x.plan, p_facturacion: !!x.facturacion })); },
   async saInvitarPropietario(org, email) { const c = await cliente(); return ok(await c.rpc('sa_invitar_propietario', { p_org: org, p_email: email })); },
+  async saDarDeBaja(org, motivo) { const c = await cliente(); return ok(await c.rpc('sa_dar_de_baja', { p_org: org, p_motivo: motivo || null })); },
+  async saReactivar(org) { const c = await cliente(); return ok(await c.rpc('sa_reactivar', { p_org: org })); },
+  async saEliminarUnidad(org, nombre) { const c = await cliente(); return ok(await c.rpc('sa_eliminar_unidad', { p_org: org, p_nombre: nombre })); },
+  async saCopiaUnidad(org) { const c = await cliente(); return ok(await c.rpc('sa_copia_unidad', { p_org: org })); },
   async saAnularInvitacion(org) { const c = await cliente(); return ok(await c.rpc('sa_anular_invitacion', { p_org: org })); },
   // Manda a la persona invitada el correo de acceso (plantilla «Magic Link» de Supabase)
   async avisarInvitado(email) {
@@ -129,6 +133,32 @@ const supa = {
     }
     return ok(await c.from('notas_tramo').upsert(fila, { onConflict: 'org_id,user_id,inicio' }).select().single());
   },
+  async importarClientes(org, filas) {
+    if (!filas.length) return [];
+    const c = await cliente(); return ok(await c.from('clientes').insert(filas.map(x => ({ ...x, org_id: org }))).select());
+  },
+  // ---- tiempo personal: privado, solo lo ve quien lo apunta (no es un fichaje)
+  async tareasPersonales() { const c = await cliente(); return ok(await c.from('tareas_personales').select('*').order('orden').order('nombre')); },
+  async guardarTareaPersonal(x) {
+    const c = await cliente(); const { id, ...datos } = x;
+    return ok(id ? await c.from('tareas_personales').update(datos).eq('id', id).select().single() : await c.from('tareas_personales').insert(datos).select().single());
+  },
+  async crearTareasPersonales(nombres) {
+    if (!nombres.length) return [];
+    const c = await cliente();
+    return ok(await c.from('tareas_personales').upsert(nombres.map((nombre, orden) => ({ nombre, orden })), { onConflict: 'user_id,nombre', ignoreDuplicates: true }).select());
+  },
+  async tiemposPersonales(desde, hasta) {
+    const c = await cliente();
+    return ok(await c.from('tiempos_personales').select('*').gte('inicio', masDias(desde, -1)).lt('inicio', masDias(hasta, 2)).order('inicio'));
+  },
+  async empezarPersonal(tarea_id) {
+    const c = await cliente(); const ahora = new Date().toISOString();
+    ok(await c.from('tiempos_personales').update({ fin: ahora }).is('fin', null));
+    return ok(await c.from('tiempos_personales').insert({ tarea_id, inicio: ahora }).select().single());
+  },
+  async pararPersonal() { const c = await cliente(); return ok(await c.from('tiempos_personales').update({ fin: new Date().toISOString() }).is('fin', null)); },
+  async borrarTiempoPersonal(id) { const c = await cliente(); return ok(await c.from('tiempos_personales').delete().eq('id', id)); },
   async fijarUbicacion(id, lat, lng) { const c = await cliente(); return ok(await c.rpc('fijar_ubicacion_cliente', { p_cliente: id, p_lat: lat, p_lng: lng })); },
 
   // ---- equipo
@@ -244,7 +274,7 @@ const demo = {
   async salir() { const d = db(); d.sesion = null; guardar(d); },
   async misEmpresas() {
     const d = db();
-    return d.miembros.filter(m => m.user_id === 'demo-user' && m.activo).map(m => {
+    return d.miembros.filter(m => m.user_id === 'demo-user' && m.activo && !d.orgs.find(x => x.id === m.org_id)?.baja_en).map(m => {
       const o = d.orgs.find(x => x.id === m.org_id);
       return { ...o, plan: PLANES.find(p => p.id === o.plan_id), rol: m.rol, mi_nombre: m.nombre, user_id: 'demo-user', usuario_email: d.sesion?.user?.email };
     });
@@ -266,8 +296,34 @@ const demo = {
       usa_facturacion: !!o.usa_facturacion, creado_en: o.creado_en || new Date().toISOString(),
       propietario: d.miembros.find(m => m.org_id === o.id && m.rol === 'propietario') ? (d.miembros.find(m => m.org_id === o.id && m.rol === 'propietario').user_id === 'demo-user' ? d.sesion?.user?.email : 'otro') : null,
       usuarios: d.miembros.filter(m => m.org_id === o.id && m.activo).length,
-      invitacion_pendiente: d.invitaciones.find(i => i.org_id === o.id && i.rol === 'propietario' && !i.aceptada_en)?.email || null, ultimo_fichaje: null }));
+      invitacion_pendiente: d.invitaciones.find(i => i.org_id === o.id && i.rol === 'propietario' && !i.aceptada_en)?.email || null,
+      ultimo_fichaje: d.fichajes.filter(f => f.org_id === o.id).map(f => f.momento).sort().at(-1) || null,
+      con_registros: d.fichajes.some(f => f.org_id === o.id) || d.facturas.some(f => f.org_id === o.id),
+      baja_en: o.baja_en || null, baja_motivo: o.baja_motivo || null, eliminar_desde: o.eliminar_desde || null }))
+      .sort((a, b) => !!a.baja_en - !!b.baja_en);
   },
+  async saDarDeBaja(org, motivo) {
+    const d = db(); const o = d.orgs.find(x => x.id === org);
+    if (o.baja_en) throw new Error('La unidad ya está de baja');
+    const ultimoFichaje = d.fichajes.filter(f => f.org_id === org).map(f => f.momento_declarado || f.momento).sort().at(-1);
+    const ultimaFactura = d.facturas.filter(f => f.org_id === org).map(f => f.fecha).sort().at(-1);
+    Object.assign(o, { baja_en: new Date().toISOString(), baja_motivo: motivo || null,
+      eliminar_desde: plazoConservacion({ ultimoFichaje, ultimaFactura, hoy: new Date().toISOString().slice(0, 10) }) });
+    d.invitaciones = d.invitaciones.filter(i => !(i.org_id === org && !i.aceptada_en));
+    guardar(d); return o.eliminar_desde;
+  },
+  async saReactivar(org) { const d = db(); Object.assign(d.orgs.find(x => x.id === org), { baja_en: null, baja_motivo: null, eliminar_desde: null }); guardar(d); },
+  async saEliminarUnidad(org, nombre) {
+    const d = db(); const o = d.orgs.find(x => x.id === org);
+    if ((nombre || '').trim().toLowerCase() !== o.nombre.trim().toLowerCase()) throw new Error('Escribe el nombre exacto de la unidad para confirmar');
+    const registros = d.fichajes.some(f => f.org_id === org) || d.facturas.some(f => f.org_id === org);
+    if (registros && !o.baja_en) throw new Error('La unidad tiene fichajes o facturas: dala de baja y podrás eliminarla cuando acabe el plazo legal');
+    if (registros && o.eliminar_desde > new Date().toISOString().slice(0, 10)) throw new Error(`Hay que conservar sus datos hasta el ${o.eliminar_desde}`);
+    for (const k of Object.keys(d)) if (Array.isArray(d[k])) d[k] = d[k].filter(x => x?.org_id !== org);
+    d.orgs = d.orgs.filter(x => x.id !== org); guardar(d);
+  },
+  async saCopiaUnidad(org) { const d = db(); return { formato: 'gofio-unidad/1', generada: new Date().toISOString(), empresa: d.orgs.find(o => o.id === org),
+    ...Object.fromEntries(['miembros', 'clientes', 'fichajes', 'facturas'].map(k => [k, (d[k] || []).filter(x => x.org_id === org)])) }; },
   async saCrearEmpresa(x) {
     if (!String(x.nombre || '').trim()) throw new Error('Escribe el nombre de la unidad');
     const email = String(x.email || '').trim().toLowerCase();
@@ -372,6 +428,30 @@ const demo = {
     else { fila = { activo: true, tipo: 'PROPIO', ...x, id: uid(), org_id: org, creado_en: new Date().toISOString() }; d.proyectos.push(fila); }
     guardar(d); return { ...fila };
   },
+  async importarClientes(org, filas) { const r = []; for (const x of filas) r.push(await demo.guardarCliente(org, x)); return r; },
+  async tareasPersonales() { return (db().tareasPersonales || []).slice().sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre)); },
+  async guardarTareaPersonal(x) {
+    const d = db(); d.tareasPersonales = d.tareasPersonales || []; let fila;
+    if (x.id) fila = Object.assign(d.tareasPersonales.find(t => t.id === x.id), x);
+    else {
+      if (d.tareasPersonales.some(t => t.nombre.toLowerCase() === x.nombre.toLowerCase())) throw new Error('Ya tienes una tarea con ese nombre');
+      fila = { activa: true, orden: d.tareasPersonales.length, ...x, id: uid() }; d.tareasPersonales.push(fila);
+    }
+    guardar(d); return { ...fila };
+  },
+  async crearTareasPersonales(nombres) {
+    const d = db(); d.tareasPersonales = d.tareasPersonales || [];
+    nombres.forEach((nombre, orden) => { if (!d.tareasPersonales.some(t => t.nombre === nombre)) d.tareasPersonales.push({ id: uid(), nombre, orden, activa: true }); });
+    guardar(d); return d.tareasPersonales;
+  },
+  async tiemposPersonales() { return db().tiemposPersonales || []; },
+  async empezarPersonal(tarea_id) {
+    const d = db(); d.tiemposPersonales = d.tiemposPersonales || []; const ahora = new Date().toISOString();
+    d.tiemposPersonales.forEach(t => { if (!t.fin) t.fin = ahora; });
+    const fila = { id: uid(), tarea_id, inicio: ahora, fin: null }; d.tiemposPersonales.push(fila); guardar(d); return fila;
+  },
+  async pararPersonal() { const d = db(); const ahora = new Date().toISOString(); (d.tiemposPersonales || []).forEach(t => { if (!t.fin) t.fin = ahora; }); guardar(d); },
+  async borrarTiempoPersonal(id) { const d = db(); d.tiemposPersonales = (d.tiemposPersonales || []).filter(t => t.id !== id); guardar(d); },
   async fijarUbicacion(id, lat, lng) { const d = db(); Object.assign(d.clientes.find(c => c.id === id), { lat, lng }); guardar(d); },
 
   async miembros(org) { return db().miembros.filter(m => m.org_id === org); },

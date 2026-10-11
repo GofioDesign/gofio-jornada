@@ -154,3 +154,11 @@ test('asignar solo una parte de un tramo', async () => {
   assert.throws(() => cambiosParaParte(t, ms('06:00'), ms('10:00'), { cliente_id: 'B' }));
   assert.throws(() => cambiosParaParte(t, ms('10:00'), ms('09:00'), { cliente_id: 'B' }));
 });
+
+test('plazo de conservación de una unidad dada de baja', async () => {
+  const { plazoConservacion } = await import('../app/js/lib/jornada.js');
+  assert.equal(plazoConservacion({ hoy: '2026-10-11' }), '2026-10-11');
+  assert.equal(plazoConservacion({ ultimoFichaje: '2026-03-02T09:00:00Z', hoy: '2026-10-11' }), '2030-03-02');
+  assert.equal(plazoConservacion({ ultimoFichaje: '2026-03-02T09:00:00Z', ultimaFactura: '2026-02-15', hoy: '2026-10-11' }), '2033-01-01');
+  assert.equal(plazoConservacion({ ultimoFichaje: '2010-01-01T09:00:00Z', ultimaFactura: '2012-05-01', hoy: '2026-10-11' }), '2026-10-11');
+});

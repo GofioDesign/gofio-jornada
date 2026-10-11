@@ -2,9 +2,10 @@
 // Crear una unidad deja una invitación de propietario: esa persona entra en la app con su email y la acepta.
 import { api } from '../api.js';
 import { h, montar, accion, aviso, fecha } from '../ui.js';
+import { descargar } from '../lib/csv.js';
 import { avisarInvitado } from './ajustes.js';
 
-export async function vistaAdmin() {
+export async function vistaAdmin(app) {
   const planes = await api.planes();
   const nombrePlan = id => planes.find(p => p.id === id)?.nombre || id;
   const lista = h('div');
@@ -42,6 +43,44 @@ export async function vistaAdmin() {
       }) }, 'Guardar'));
   };
 
+  // Eliminar (sin empezar) o dar de baja (ya tiene fichajes o facturas: se conservan el plazo legal)
+  const hoy = new Date().toISOString().slice(0, 10);
+  const largo = d => new Date(String(d).slice(0, 10) + 'T12:00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
+  // la unidad puede ser la empresa del propio superadmin: se recargan sus empresas para el menú
+  const recargar = async () => { if (app) await app.recargar(); else await cargar(); };
+  const eliminar = (e, btn) => {
+    const nombre = prompt(`Se borrará «${e.nombre}» con todos sus datos y no se podrá deshacer.\n\nEscribe el nombre de la unidad para confirmar:`);
+    if (nombre === null) return;
+    accion(btn, async () => { await api.saEliminarUnidad(e.id, nombre); aviso(`${e.nombre} eliminada`, 'ok'); await recargar(); });
+  };
+  const copia = (e, btn) => accion(btn, async () => {
+    descargar(`copia-${e.nombre.replace(/[^\w-]+/g, '_')}-${hoy}.json`, JSON.stringify(await api.saCopiaUnidad(e.id), null, 2), 'application/json');
+  });
+  const ciclo = (e) => {
+    if (e.baja_en) return h('div.sa-baja',
+      h('p.ayuda', `De baja desde el ${largo(e.baja_en)}${e.baja_motivo ? ` (${e.baja_motivo})` : ''}. Sus usuarios ya no entran. `,
+        e.con_registros ? `Hay que conservar sus datos hasta el ${largo(e.eliminar_desde)}.` : 'No tiene fichajes ni facturas.'),
+      h('div.fila-botones',
+        h('button.btn.mini', { type: 'button', onclick: ev => accion(ev.currentTarget, async () => { await api.saReactivar(e.id); aviso(`${e.nombre} reactivada`, 'ok'); await recargar(); }) }, 'Reactivar'),
+        h('button.btn.mini', { type: 'button', onclick: ev => copia(e, ev.currentTarget) }, 'Descargar copia'),
+        !e.con_registros || e.eliminar_desde <= hoy
+          ? h('button.btn.mini.peligro', { type: 'button', onclick: ev => eliminar(e, ev.currentTarget) }, 'Eliminar definitivamente')
+          : h('span.ayuda', 'Se podrá eliminar a partir de esa fecha.')));
+    if (!e.con_registros) return h('div.fila-botones.sa-baja',
+      h('span.ayuda', 'Aún no ha empezado (sin fichajes ni facturas): se puede eliminar.'),
+      h('button.btn.mini.peligro', { type: 'button', onclick: ev => eliminar(e, ev.currentTarget) }, 'Eliminar unidad'));
+    return h('div.fila-botones.sa-baja',
+      h('button.btn.mini', { type: 'button', onclick: ev => copia(e, ev.currentTarget) }, 'Descargar copia'),
+      h('button.btn.mini.peligro', { type: 'button', onclick: ev => {
+        const motivo = prompt(`Dar de baja «${e.nombre}»: sus usuarios dejarán de entrar y sus datos se conservarán el plazo legal (4 años el registro de jornada, 6 las facturas). Se puede reactivar.\n\nMotivo (opcional):`);
+        if (motivo === null) return;
+        accion(ev.currentTarget, async () => {
+          const hasta = await api.saDarDeBaja(e.id, motivo);
+          aviso(`${e.nombre} dada de baja. Se podrá eliminar a partir del ${largo(hasta)}.`, 'ok'); await recargar();
+        });
+      } }, 'Dar de baja'));
+  };
+
   const titulo = h('h2');
   const pintar = () => {
     titulo.textContent = `Todas las unidades (${empresas.length})`;
@@ -49,12 +88,12 @@ export async function vistaAdmin() {
     const r = empresas.filter(e => !q || [e.nombre, e.nif, e.propietario, e.invitacion_pendiente].some(x => String(x || '').toLowerCase().includes(q)));
     montar(lista, r.length ? h('div.lista', r.map(e => h('details.item.sa-unidad',
       h('summary',
-        h('strong', e.nombre), ' ',
+        h('strong', e.nombre), e.baja_en ? h('span.etiqueta.baja', 'de baja') : null, ' ',
         h('span.ayuda', [e.nif, nombrePlan(e.plan_id) + (e.plan_hasta ? ` hasta ${fecha(e.plan_hasta)}` : ''), e.tester_facturacion ? 'facturación' : null,
           `${e.usuarios} ${e.usuarios === 1 ? 'usuario' : 'usuarios'}`].filter(Boolean).join(' · ')),
         h('div.ayuda', e.propietario ? `Propietario: ${e.propietario}` : e.invitacion_pendiente ? `Invitación pendiente: ${e.invitacion_pendiente}` : 'Sin propietario',
           ` · alta ${fecha(String(e.creado_en).slice(0, 10))}`, e.ultimo_fichaje ? ` · último fichaje ${fecha(String(e.ultimo_fichaje).slice(0, 10))}` : '')),
-      invitacion(e), editar(e)))) : h('p.vacio', 'No hay unidades con ese filtro.'));
+      e.baja_en ? null : invitacion(e), e.baja_en ? null : editar(e), ciclo(e)))) : h('p.vacio', 'No hay unidades con ese filtro.'));
   };
   const cargar = async () => { empresas = await api.saEmpresas(); pintar(); };
   buscar.addEventListener('input', pintar);

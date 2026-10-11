@@ -1,7 +1,9 @@
 import { api } from '../api.js';
-import { h, accion, aviso, dialogo, posicion, hoyISO, sumarDias, preferencia } from '../ui.js';
+import { h, montar, accion, aviso, dialogo, posicion, hoyISO, sumarDias, preferencia } from '../ui.js';
 import { direccionCompleta, wazeUrl, mapsUrl, tieneDestino } from '../lib/mapas.js';
 import { fmtMin } from '../lib/jornada.js';
+import { parseCSV, toCSV, descargar } from '../lib/csv.js';
+import { clientesDesdeCSV, CABECERAS_CLIENTES } from '../lib/personal.js';
 
 export const TIPOS_CLIENTE = { PARTICULAR: 'Particular', AUTONOMO: 'Profesional / autónomo', EMPRESA: 'Empresa', ADMINISTRACION: 'Administración pública' };
 
@@ -36,7 +38,7 @@ export async function vistaClientes(app) {
   pintar();
 
   return h('section.pila',
-    h('div.cab', h('h1', 'Clientes'), puedeEditar(app.rol) ? h('button.btn.primario', { onclick: () => editar(app, {}) }, '+ Nuevo') : null),
+    h('div.cab', h('h1', 'Clientes'), puedeEditar(app.rol) ? h('span.fila-botones', h('button.btn', { onclick: () => importar(app, clientes) }, 'Importar CSV'), h('button.btn.primario', { onclick: () => editar(app, {}) }, '+ Nuevo')) : null),
     h('div.filtros', buscar, filtroLoc, filtroEstado, contador),
     lista);
 }
@@ -136,4 +138,40 @@ export async function editar(app, c, { recargar = true } = {}) {
         return guardado;
       },
     }]);
+}
+
+/** Caja para elegir un CSV de clientes: muestra cuántos se importarán y los errores. clientes() da las filas listas. */
+export function cajaCSVClientes(existentes = []) {
+  let listos = [];
+  const resumen = h('p.ayuda', 'Columnas: nombre (obligatoria), nif, tipo, email, telefono, direccion, cp, localidad, municipio, provincia. Separador ; o ,');
+  const archivo = h('input', { type: 'file', accept: '.csv,text/csv', 'aria-label': 'Archivo CSV de clientes',
+    onchange: async () => {
+      const f = archivo.files[0]; listos = [];
+      if (!f) return;
+      const { clientes, errores } = clientesDesdeCSV(parseCSV(await f.text()), existentes);
+      listos = clientes;
+      montar(resumen, h('strong', clientes.length === 1 ? '1 cliente listo para importar.' : `${clientes.length} clientes listos para importar.`),
+        errores.length ? h('span', ` ${errores.length === 1 ? '1 fila no se importa' : errores.length + ' filas no se importan'}: ${errores.slice(0, 3).join('; ')}${errores.length > 3 ? '…' : ''}`) : null,
+        clientes.some(c => c.codigo.startsWith('SIN-NIF')) ? h('span', ' Los que no traen NIF quedan con un código provisional (SIN-NIF-…) que puedes cambiar después.') : null);
+    } });
+  const plantilla = h('button.btn.enlace', { type: 'button', onclick: () => descargar('plantilla-clientes.csv', toCSV([
+    { nombre: 'Casa María', nif: '12345678Z', tipo: 'particular', email: 'maria@ejemplo.com', telefono: '600000000', direccion: 'C/ Real 1', cp: '38500', localidad: 'Güímar', municipio: 'Güímar', provincia: 'S/C de Tenerife' },
+    { nombre: 'Construcciones Norte SL', nif: 'B00000000', tipo: 'empresa', email: '', telefono: '', direccion: '', cp: '', localidad: '', municipio: '', provincia: '' },
+  ], CABECERAS_CLIENTES)) }, 'Descargar plantilla');
+  return { nodo: h('div.csv-clientes', archivo, plantilla, resumen), clientes: () => listos };
+}
+
+async function importar(app, existentes) {
+  const caja = cajaCSVClientes(existentes);
+  const hecho = await dialogo('Importar clientes', caja.nodo, [
+    { texto: 'Cancelar', valor: false },
+    { texto: 'Importar', clase: 'primario', valor: async () => {
+      const filas = caja.clientes();
+      if (!filas.length) { aviso('Elige un CSV con al menos un cliente', 'error'); return undefined; }
+      const r = await accion(null, () => api.importarClientes(app.org, filas));
+      if (!r) return undefined;
+      aviso(filas.length === 1 ? '1 cliente importado' : `${filas.length} clientes importados`, 'ok');
+      return true;
+    } }]);
+  if (hecho) window.dispatchEvent(new HashChangeEvent('hashchange'));
 }
