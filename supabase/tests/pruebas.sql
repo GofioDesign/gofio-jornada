@@ -720,7 +720,11 @@ do $$ declare r jsonb := (select r from reg); begin
   if (r->>'dias')::int <> 1 or (r->>'minutos')::int <> 480 or not (r->>'cerrado')::boolean or r->'firma' <> 'null'::jsonb then
     raise exception 'registro_para_firmar: %', r;
   end if;
-  if position('2025-03-03;08:00;16:00;8:00;0:00;0:00;2' in r->>'documento') = 0 or position('Total: 8:00 de trabajo en 1 día' in r->>'documento') = 0 then
+  -- formato 2 (0034): fila del día con referencias a los cambios hechos a mano, y cada cambio explicado
+  if position('lun 03/03 08:00   16:00          8:00   0:00  (1)(2)' in r->>'documento') = 0
+     or position('Total: 8:00 de trabajo en 1 día. Pausas: 0:00.' in r->>'documento') = 0
+     or position('(1) lun 03/03 · Se añadió a mano: entrada a las 08:00. Lo registró Juan el ' in r->>'documento') = 0
+     or position('Motivo: prueba firma.' in r->>'documento') = 0 then
     raise exception 'documento: %', r->>'documento';
   end if;
 end $$;
@@ -775,6 +779,25 @@ do $$ declare doc bytea := convert_to((select r->>'documento' from reg), 'UTF8')
   perform pg_temp.como('00000000-0000-0000-0000-00000000000a', 'propietario@gofio.test');
   select * into e from public.estado_firmas((select org from ctx), '2025-03-01') where user_id = '00000000-0000-0000-0000-00000000000b';
   if e.metodo <> 'CERTIFICADO' or not e.vigente then raise exception 'estado_firmas tras firmar con certificado: %', row_to_json(e); end if;
+end $$;
+-- una firma hecha antes de la 0034 (formato 1) sigue vigente y se enseña tal como se firmó
+reset role;
+select public._insertar_fichaje((select org from ctx), '00000000-0000-0000-0000-00000000000b', 'ENTRADA', null, null, null, null, null,
+  'RESPONSABLE', timestamptz '2025-02-03 08:00 Atlantic/Canary', null, 'prueba firma', 'APROBADA');
+select public._insertar_fichaje((select org from ctx), '00000000-0000-0000-0000-00000000000b', 'SALIDA', null, null, null, null, null,
+  'RESPONSABLE', timestamptz '2025-02-03 15:00 Atlantic/Canary', null, 'prueba firma', 'APROBADA');
+insert into firmas_registro (org_id, user_id, periodo, documento, huella, dias, minutos, metodo, destino)
+  select (select org from ctx), '00000000-0000-0000-0000-00000000000b', '2025-02-01', d.documento, d.huella, d.dias, d.minutos, 'EMAIL', 'empleado@gofio.test'
+    from public._documento_registro((select org from ctx), '00000000-0000-0000-0000-00000000000b', '2025-02-01') d;
+set role authenticated;
+select pg_temp.como('00000000-0000-0000-0000-00000000000b', 'empleado@gofio.test');
+do $$ declare r jsonb := public.registro_para_firmar((select org from ctx), '2025-02-01'); e record; begin
+  if not (r->>'vigente')::boolean or position('2025-02-03;08:00;15:00;7:00' in r->>'documento') = 0 then
+    raise exception 'la firma del formato 1 debería seguir vigente: %', r;
+  end if;
+  perform pg_temp.como('00000000-0000-0000-0000-00000000000a', 'propietario@gofio.test');
+  select * into e from public.estado_firmas((select org from ctx), '2025-02-01') where user_id = '00000000-0000-0000-0000-00000000000b';
+  if not e.vigente then raise exception 'estado_firmas con firma del formato 1: %', row_to_json(e); end if;
 end $$;
 -- otra empresa no ve las firmas
 select pg_temp.como('00000000-0000-0000-0000-00000000000c', 'otra@empresa.test');

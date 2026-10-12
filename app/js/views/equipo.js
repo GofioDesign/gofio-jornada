@@ -120,7 +120,8 @@ export async function vistaEquipo(app) {
             r.vigente ? h('span.ok-firma', `✓ firmado el ${new Date(r.firmado_en).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', timeZone: app.tz })} con ${METODOS[r.metodo]}`)
               : r.firma_id ? h('span.aviso-firma', 'cambió después de firmar') : 'pendiente de firmar')),
         r.firma_id ? h('div.fila-botones',
-          h('button.btn.mini', { title: 'Documento firmado y datos de la firma', onclick: e => accion(e.currentTarget, () => descargarFirma(r.firma_id, r.nombre || nombre(r.user_id))) }, 'Justificante'),
+          h('button.btn.mini', { title: 'Documento firmado y datos de la firma', onclick: e => accion(e.currentTarget, () => descargarFirma(r.firma_id, r.nombre || nombre(r.user_id), { tz: app.tz })) }, 'Justificante'),
+          h('button.btn.mini', { title: 'Abrir el justificante para imprimirlo o guardarlo en PDF', onclick: e => accion(e.currentTarget, () => descargarFirma(r.firma_id, r.nombre || nombre(r.user_id), { tz: app.tz, imprimir: true })) }, 'Imprimir'),
           r.metodo === 'CERTIFICADO' ? h('button.btn.mini', { title: 'Firma electrónica CAdES', onclick: e => accion(e.currentTarget, () => descargarFirma(r.firma_id, r.nombre || nombre(r.user_id), { cms: true })) }, '.csig') : null) : null)))
       : h('p.vacio', 'Nadie tiene jornadas en ese mes.'));
   };

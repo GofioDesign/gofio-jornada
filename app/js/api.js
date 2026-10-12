@@ -3,7 +3,7 @@
 //  - Modo DEMO: sin configurar nada; guarda en este navegador para probar la app.
 import { CONFIG } from '../config.js';
 import { estadoActual, tramos, totales, diaLocal, plazoConservacion } from './lib/jornada.js';
-import { esFirmaDe, deBase64 } from './lib/firma.js';
+import { esFirmaDe, deBase64, documentoRegistro } from './lib/firma.js';
 import { calcular, irpfCliente, emisorDe, categoriaDe, conceptoDe, motivoRectificativa, numeroAnterior, SIN_HUELLA } from './lib/factura.js';
 const masDias = (iso, n) => { const d = new Date(iso + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 
@@ -310,20 +310,17 @@ function proyectoCliente(d, proyecto_id, cliente_id) {
 }
 const espera = (ms = 60) => new Promise(r => setTimeout(r, ms));
 const tokenDemo = () => Array.from(crypto.getRandomValues(new Uint8Array(18)), b => b.toString(16).padStart(2, '0')).join('');
-const hm = m => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
-// Documento del mes en la demo: mismo formato que _documento_registro en SQL
+// Documento del mes en la demo: el mismo texto que _documento_registro_v2 en SQL (documentoRegistro)
 async function documentoDemo(d, org, user, periodo) {
   const o = d.orgs.find(x => x.id === org); const m = d.miembros.find(x => x.org_id === org && x.user_id === user) || {};
-  const tz = o.config?.zona_horaria || 'Atlantic/Canary'; const hasta = masDias(masDias(periodo, 32).slice(0, 8) + '01', -1);
-  const dias = (await demo.resumen(org, periodo, hasta, user)).filter(r => r.user_id === user && r.dia >= periodo && r.dia <= hasta);
-  const hhmm = x => x ? new Date(x).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: tz }) : '';
-  const minutos = dias.reduce((s, r) => s + r.minutos_trabajo, 0);
-  const documento = 'REGISTRO DE JORNADA\n' + `Empresa: ${o.nombre}${o.nif ? ' · NIF ' + o.nif : ''}\n` + `Persona: ${m.nombre || '—'}${m.nif ? ' · NIF ' + m.nif : ''}\n`
-    + `Periodo: del ${periodo} al ${hasta} (hora de ${tz})\n\n` + 'Día;Entrada;Salida;Trabajo;Pausas;Desplazamientos;Correcciones\n'
-    + dias.map(r => [r.dia, hhmm(r.primera_entrada), r.abierta ? 'sin cerrar' : hhmm(r.ultima_salida), hm(r.minutos_trabajo), hm(r.minutos_pausa), hm(r.minutos_desplazamiento), r.correcciones].join(';') + '\n').join('')
-    + `\nTotal: ${hm(minutos)} de trabajo en ${dias.length} ${dias.length === 1 ? 'día' : 'días'}\n`;
-  const huella = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(documento))), b => b.toString(16).padStart(2, '0')).join('');
-  return { documento, huella, dias: dias.length, minutos };
+  const tz = o.config?.zona_horaria || 'Atlantic/Canary';
+  const nombres = Object.fromEntries(d.miembros.filter(x => x.org_id === org).map(x => [x.user_id, x.nombre]));
+  const fichajes = d.fichajes.filter(f => f.org_id === org && f.user_id === user).map(f => ({ origen: 'APP', registrado_por: f.user_id, ...f }));
+  const r = documentoRegistro({ empresa: o, persona: m, periodo, tz, fichajes, nombres });
+  const huella = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(r.documento))), b => b.toString(16).padStart(2, '0')).join('');
+  const hasta = masDias(masDias(periodo, 32).slice(0, 8) + '01', -1);
+  const pendientes = fichajes.filter(f => f.estado === 'PENDIENTE' && diaLocal(Date.parse(f.momento_declarado || f.momento), tz) >= periodo && diaLocal(Date.parse(f.momento_declarado || f.momento), tz) <= hasta).length;
+  return { ...r, huella, pendientes };
 }
 async function firmarDemo(org, periodo, huella, metodo, destino, firma_cms) {
   const d = db(); const r = await documentoDemo(d, org, 'demo-user', periodo);
@@ -331,7 +328,8 @@ async function firmarDemo(org, periodo, huella, metodo, destino, firma_cms) {
   if (huella !== r.huella) throw new Error('El registro ha cambiado mientras lo mirabas. Vuelve a abrirlo antes de firmar.');
   d.firmas = d.firmas || [];
   if (d.firmas.some(f => f.org_id === org && f.user_id === 'demo-user' && f.periodo === periodo && f.huella === huella)) throw new Error('Ya has firmado este registro');
-  const f = { id: uid(), org_id: org, user_id: 'demo-user', periodo, ...r, metodo, destino, firma_cms, firmado_en: new Date().toISOString() };
+  const { documento, huella: h, dias, minutos } = r;
+  const f = { id: uid(), org_id: org, user_id: 'demo-user', periodo, documento, huella: h, dias, minutos, metodo, destino, firma_cms, formato: 2, firmado_en: new Date().toISOString() };
   d.firmas.push(f); guardar(d); return f;
 }
 
@@ -513,7 +511,7 @@ const demo = {
     const d = db(); const r = await documentoDemo(d, org, 'demo-user', periodo);
     const f = (d.firmas || []).filter(x => x.org_id === org && x.user_id === 'demo-user' && x.periodo === periodo).at(-1);
     const o = d.orgs.find(x => x.id === org);
-    return { ...r, periodo, cerrado: masDias(periodo, 32).slice(0, 8) + '01' <= diaLocal(Date.now(), o.config?.zona_horaria),
+    return { ...r, sin_cerrar: r.abiertos, periodo, cerrado: masDias(periodo, 32).slice(0, 8) + '01' <= diaLocal(Date.now(), o.config?.zona_horaria),
       vigente: !!f && f.huella === r.huella, firma: f ? { id: f.id, metodo: f.metodo, destino: f.destino, firmado_en: f.firmado_en, huella: f.huella } : null };
   },
   async enviarCodigoFirma(canal, telefono) {
