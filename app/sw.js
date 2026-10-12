@@ -1,8 +1,8 @@
 // Service worker: la app se abre al instante y funciona sin cobertura (los datos se piden al servidor al fichar).
-const CACHE = 'gofio-jornada-v0.1.51';
+const CACHE = 'gofio-jornada-v0.1.52';
 const APP = ['./', 'index.html', 'config.js', 'css/app.css', 'manifest.webmanifest', 'icons/icono.svg', 'icons/icono-192.png',
   'js/main.js', 'js/api.js', 'js/ui.js', 'js/lib/jornada.js', 'js/lib/mapas.js', 'js/lib/csv.js',
-  'js/lib/factura.js', 'js/lib/precios.js', 'js/lib/personal.js', 'js/lib/firma.js', 'js/lib/horario.js', 'js/views/firma.js', 'js/views/acceso.js', 'js/views/jornada.js',
+  'js/lib/factura.js', 'js/lib/precios.js', 'js/lib/personal.js', 'js/lib/firma.js', 'js/lib/horario.js', 'js/lib/autofirma.js', 'js/vendor/autoscript.js', 'js/views/firma.js', 'js/views/acceso.js', 'js/views/jornada.js',
   'js/views/clientes.js', 'js/views/proyectos.js', 'js/views/equipo.js', 'js/views/tiempos.js', 'js/views/ajustes.js', 'js/views/facturacion.js',
   'js/views/factura.js', 'js/views/borrador.js', 'js/views/maestros.js', 'js/views/presupuestos.js', 'js/views/admin.js', 'js/views/personal.js'];
 

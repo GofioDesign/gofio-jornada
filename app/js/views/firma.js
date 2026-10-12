@@ -5,6 +5,7 @@ import { CONFIG } from '../../config.js';
 import { h, montar, accion, aviso, dialogo, hoyISO } from '../ui.js';
 import { fmtMin } from '../lib/jornada.js';
 import { descargar } from '../lib/csv.js';
+import { firmaDirectaDisponible, firmarConAutoFirma } from '../lib/autofirma.js';
 import { nombreMes, mesesCerrados, METODOS, ocultar, telefonoE164, aBase64, deBase64, bytesDeArchivo, esFirmaDe, leerFirmante, justificante } from '../lib/firma.js';
 
 const fechaHora = (x, tz) => new Date(x).toLocaleString('es-ES', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: tz });
@@ -137,13 +138,25 @@ export async function abrirFirma(app, periodo) {
         h('p', quien ? ['Firma de ', h('strong', [quien.nombre, quien.nif].filter(Boolean).join(' · ') || 'certificado sin nombre'), quien.emisor ? ` (certificado de ${quien.emisor})` : '', '.'] : 'No se ha podido leer el certificado, pero la firma es de este documento.'),
         h('button.btn.primario', { onclick: e => accion(e.currentTarget, async () => hecho(await api.firmarConCertificado(app.org, r.periodo, r.huella, aBase64(bytes)))) }, 'Guardar la firma'));
     }));
+    const aMano = h('ol.pasos',
+      h('li', h('button.btn', { onclick: () => descargar(archivo(r.periodo, persona, 'txt'), r.documento, 'text/plain;charset=utf-8') }, 'Descargar el documento'), ' (no lo abras ni lo cambies).'),
+      h('li', 'Fírmalo con ', h('a', { href: 'https://firmaelectronica.gob.es/Home/Descargas.html', target: '_blank', rel: 'noopener' }, 'AutoFirma'),
+        ': «Seleccionar ficheros a firmar», elige el documento y pulsa «Firmar» con tu certificado. Se guarda un archivo .csig.'),
+      h('li', h('label', { for: 'firma-archivo' }, 'Sube aquí el archivo .csig'), subir));
+    if (!firmaDirectaDisponible()) return montar(zona, aMano, resultado, h('div.fila-botones', botonVolver()));
+    // En el ordenador: AutoFirma se abre con el registro ya cargado y la firma vuelve sola a la app
+    const espera = h('p.ayuda');
+    const directa = e => accion(e.currentTarget, async () => {
+      espera.textContent = 'Abriendo AutoFirma… Si el navegador te pregunta, permite que lo abra. Puede tardar unos segundos.';
+      const firma = await firmarConAutoFirma(r.documento).finally(() => { espera.textContent = ''; });
+      if (!(await esFirmaDe(deBase64(firma), r.documento))) throw new Error('La firma que ha devuelto AutoFirma no es de este documento. Vuelve a intentarlo.');
+      hecho(await api.firmarConCertificado(app.org, r.periodo, r.huella, firma));
+    });
     montar(zona,
-      h('ol.pasos',
-        h('li', h('button.btn', { onclick: () => descargar(archivo(r.periodo, persona, 'txt'), r.documento, 'text/plain;charset=utf-8') }, 'Descargar el documento'), ' (no lo abras ni lo cambies).'),
-        h('li', 'Fírmalo con ', h('a', { href: 'https://firmaelectronica.gob.es/Home/Descargas.html', target: '_blank', rel: 'noopener' }, 'AutoFirma'),
-          ': «Seleccionar ficheros a firmar», elige el documento y pulsa «Firmar» con tu certificado. Se guarda un archivo .csig.'),
-        h('li', h('label', { for: 'firma-archivo' }, 'Sube aquí el archivo .csig'), subir)),
-      resultado, h('div.fila-botones', botonVolver()));
+      h('p', 'Se abrirá ', h('strong', 'AutoFirma'), ' con tu registro ya cargado. Elige tu certificado y la firma se guarda sola.'),
+      h('div.fila-botones', h('button.btn.primario', { onclick: directa }, '🔏 Firmar con AutoFirma'), botonVolver()), espera,
+      h('p.ayuda', '¿No tienes AutoFirma? ', h('a', { href: 'https://firmaelectronica.gob.es/Home/Descargas.html', target: '_blank', rel: 'noopener' }, 'Descárgalo aquí'), ' (es gratis, del Gobierno de España).'),
+      h('details.firma-a-mano', h('summary', '¿No se abre AutoFirma? Fírmalo a mano'), aMano, resultado));
   };
 
   const elegir = () => {

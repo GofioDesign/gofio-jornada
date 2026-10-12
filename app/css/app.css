@@ -363,3 +363,5 @@ ol.pasos input[type=file] { display: block; margin-top: .3rem; }
 .horario-tramo { display: flex; align-items: center; gap: 6px; }
 .horario-tramo input { width: auto; flex: 1 1 0; min-width: 0; }
 @media (max-width: 480px) { .horario-dia { grid-template-columns: 1fr auto; } .horario-tramos { grid-column: 1 / -1; grid-row: 2; } .horario-dia > .btn { margin-top: 0; } .horario-dia > strong { margin-top: 0; } }
+.firma-a-mano { margin-top: .75rem; }
+.firma-a-mano summary { cursor: pointer; color: var(--suave); }
