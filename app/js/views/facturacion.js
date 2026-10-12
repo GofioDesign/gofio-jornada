@@ -43,7 +43,7 @@ async function listado(app) {
   [buscar, estado].forEach(x => x.addEventListener('input', pintar)); pintar();
 
   const elegir = h('select', { 'aria-label': 'Cliente', onchange: ev => { if (ev.target.value) location.hash = '#/facturacion/' + ev.target.value; } },
-    h('option', { value: '' }, 'Elige cliente…'), clientes.map(c => h('option', { value: c.id }, c.nombre)));
+    h('option', { value: '' }, 'Elige cliente…'), clientes.filter(c => !c.por_nomina).map(c => h('option', { value: c.id }, c.nombre)));
 
   return h('section.pila',
     h('div.cab', h('h1', 'Facturación ', h('span.etiqueta', 'beta')), h('div.acciones', h('a.btn', { href: '#/facturacion/productos' }, 'Productos'), h('a.btn', { href: '#/facturacion/proveedores' }, 'Proveedores'), h('a.btn', { href: '#/facturacion/presupuestos' }, 'Presupuestos'), h('a.btn', { href: '#/facturacion/borrador/anterior' }, 'Registrar factura anterior'), h('a.btn.primario', { href: '#/facturacion/borrador/nuevo' }, '+ Nueva factura'))),
@@ -57,6 +57,8 @@ async function facturarHoras(app, clienteId) {
   const [clientes, productos] = await Promise.all([api.clientes(app.org), api.productos(app.org).catch(() => [])]);
   const c = clientes.find(x => x.id === clienteId);
   if (!c) return h('p.vacio', 'Cliente no encontrado.');
+  if (c.por_nomina) return h('section.pila', h('a.volver', { href: '#/clientes/' + c.id }, '← ' + c.nombre),
+    h('p.vacio', `${c.nombre} te paga por nómina: sus horas no se facturan. Apunta la nómina en su ficha para ver tu precio hora.`));
   const desde = h('input', { type: 'date', value: sumarDias(hoy, -30), 'aria-label': 'Desde' });
   const hasta = h('input', { type: 'date', value: hoy, 'aria-label': 'Hasta' });
   // Producto del catálogo para cada línea: lo elige quien factura (se recuerda la última elección).
