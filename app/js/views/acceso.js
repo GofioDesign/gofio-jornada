@@ -69,7 +69,7 @@ export async function vistaAlta(app) {
   const secEmpresa = h('div',
     h('label', { for: 'alta-nombre' }, 'Empresa'), nombre,
     h('label', { for: 'alta-nif' }, 'NIF'), nif);
-  const ayudaPlan = h('p.ayuda', 'Empiezas con el plan gratuito de control horario (hasta 5 personas). Podrás invitar a tu equipo desde Ajustes.');
+  const ayudaPlan = h('p.ayuda', 'Empiezas con Jornada, para una persona. Si trabajáis varios, Jornada Pro equipo se contrata por asientos.');
   const crear = h('button.btn.primario', { type: 'submit' }, 'Crear y empezar');
   const resto = h('div.pila', secEmpresa, h('div', h('label', { for: 'alta-tu' }, 'Tu nombre'), tuNombre), secClientes, secTareas, ayudaPlan, crear);
   const botonesUso = Object.entries(USOS).map(([v, t]) =>

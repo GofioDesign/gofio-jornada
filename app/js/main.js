@@ -63,7 +63,7 @@ function pintarCabecera(modoSA = false) {
 function pintarMenu(ruta, modoSA = false) {
   // Modo superadmin: gestión de la plataforma, aparte del menú de la empresa
   const items = modoSA ? [
-    ['#/sa', 'Unidades', 'equipo'],
+    ['#/sa', 'Licencias', 'equipo'],
     app.e && ['#/', 'Volver a mi empresa', 'reloj'],
   ].filter(Boolean) : app.uso === 'personal' ? [
     ['#/personal', 'Mi tiempo', 'crono'],
