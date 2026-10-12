@@ -11,7 +11,7 @@ export async function vistaProyectos(app) {
   const cli = id => clientes.find(c => c.id === id)?.nombre;
   const buscar = h('input', { type: 'search', placeholder: 'Buscar por nombre o cliente…', 'aria-label': 'Buscar', value: preferencia('pro-q') || '' });
   const filtroTipo = h('select', { 'aria-label': 'Tipo' }, h('option', { value: '' }, 'Propios y ajenos'), h('option', { value: 'PROPIO' }, 'Propios'), h('option', { value: 'AJENO' }, 'Ajenos'));
-  const filtroEstado = h('select', { 'aria-label': 'Estado' }, h('option', { value: 'activos' }, 'Abiertos'), h('option', { value: 'todos' }, 'Todos'), h('option', { value: 'sincliente' }, 'Sin cliente'));
+  const filtroEstado = h('select', { 'aria-label': 'Estado' }, h('option', { value: 'activos' }, 'Abiertos'), h('option', { value: 'sincliente' }, 'Abiertos sin cliente'), h('option', { value: 'cerrados' }, 'Cerrados'));
   const lista = h('div.lista');
   const contador = h('span.ayuda');
 
@@ -21,7 +21,7 @@ export async function vistaProyectos(app) {
     const r = proyectos.filter(p =>
       (!q || [p.nombre, cli(p.cliente_id), p.notas].join(' ').toLowerCase().includes(q)) &&
       (!filtroTipo.value || p.tipo === filtroTipo.value) &&
-      (filtroEstado.value === 'todos' || (filtroEstado.value === 'activos' ? p.activo !== false : !p.cliente_id)));
+      (filtroEstado.value === 'cerrados' ? p.activo === false : p.activo !== false && (filtroEstado.value !== 'sincliente' || !p.cliente_id)));
     contador.textContent = `${r.length} de ${proyectos.length}`;
     lista.replaceChildren(...(r.length ? r.map(p => h('div.item', { role: 'link', tabIndex: 0,
         onclick: () => { location.hash = '#/proyectos/' + p.id; }, onkeydown: e => { if (e.key === 'Enter') location.hash = '#/proyectos/' + p.id; } },
@@ -46,10 +46,13 @@ export async function vistaProyecto(app, id) {
   const c = clientes.find(x => x.id === p.cliente_id);
   const hoy = hoyISO(app.tz);
   // Último año (las horas se pueden asignar a posteriori, también antes de crear el proyecto)
-  const [tr, miembros] = await Promise.all([
+  const [tr, miembros, personales] = await Promise.all([
     api.tramos(app.org, sumarDias(hoy, -365), hoy).catch(() => []),
     puedeEditar(app.rol) ? api.miembros(app.org).catch(() => []) : [],
+    api.tiemposPersonales(sumarDias(hoy, -365), hoy).catch(() => []),
   ]);
+  // Lo ya pasado a «Mi tiempo» (mismo inicio) no se vuelve a ofrecer
+  const yaPasado = new Set(personales.map(t => Date.parse(t.inicio)));
   const mios = tr.filter(t => t.tipo === 'TRABAJO' && t.proyecto_id === id);
   const total = mios.reduce((s, t) => s + t.minutos, 0);
   const suma = clave => Object.entries(mios.reduce((o, t) => ({ ...o, [t[clave]]: (o[t[clave]] || 0) + t.minutos }), {}));
@@ -72,14 +75,18 @@ export async function vistaProyecto(app, id) {
       porDia.length ? h('table.tabla', h('thead', h('tr', h('th', 'Día'), h('th', 'Trabajo'))),
         h('tbody', porDia.slice(0, 31).map(([d, m]) => h('tr', h('td', fecha(d)), h('td', fmtMin(m))))))
         : h('p.vacio', 'Todavía no hay horas en este proyecto. Elígelo al fichar o asígnalo a un tramo desde Jornada.')),
-    pasarAPersonal(app, p, mios.filter(t => t.user_id === app.e.user_id)));
+    pasarAPersonal(app, p, mios.filter(t => t.user_id === app.e.user_id && t.fin && !yaPasado.has(Date.parse(t.inicio)))));
 }
+
+// Proyecto cuya tarjeta «¿Es tiempo personal?» se abre al llegar desde «Editar»
+let abrirPersonal = null;
 
 // Proyectos usados para tareas de casa antes de existir «Mi tiempo»: lo tuyo se pasa allí y sale de la jornada.
 function pasarAPersonal(app, p, propios) {
   const min = propios.reduce((s, t) => s + t.minutos, 0);
-  if (!min) return null;
-  return h('details.tarjeta', h('summary', h('strong', '¿Es tiempo personal?')),
+  const abrir = abrirPersonal === p.id; abrirPersonal = null;
+  if (!min) { if (abrir) aviso('No te quedan horas en este proyecto por pasar a «Mi tiempo».'); return null; }
+  return h('details.tarjeta', { open: abrir }, h('summary', h('strong', '¿Es tiempo personal?')),
     h('p.ayuda', `Si apuntaste aquí tareas tuyas (de casa, por ejemplo), puedes pasar tus ${fmtMin(min)} a «Mi tiempo». Allí solo lo ves tú y deja de contar como trabajo.`),
     h('button.btn', { onclick: async () => {
       const tarea = h('input', { id: 'pp-tarea', value: tareaDesdeProyecto(p.nombre), maxLength: 60 });
@@ -121,6 +128,12 @@ export async function editar(app, p, clientes, { recargar = true } = {}) {
     h('label', { for: 'p-notas' }, 'Notas'), notas,
     h('label.check', activo, ' Abierto (se puede elegir al fichar)'));
   return dialogo(p.id ? 'Editar proyecto' : 'Nuevo proyecto', form, [
+    ...(p.id ? [{ texto: 'Pasar a «Mi tiempo»', valor: () => {
+      abrirPersonal = p.id;
+      if (location.hash === '#/proyectos/' + p.id) window.dispatchEvent(new HashChangeEvent('hashchange'));
+      else location.hash = '#/proyectos/' + p.id;
+      return false;
+    } }] : []),
     { texto: 'Cancelar', valor: false },
     {
       texto: 'Guardar', clase: 'primario', valor: async () => {
