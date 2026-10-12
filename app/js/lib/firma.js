@@ -138,15 +138,126 @@ export function leerFirmante(bytes) {
   } catch { return null; }
 }
 
+/** Fecha y hora de la firma en la hora local de la empresa, con la hora UTC al lado: '11/10/2026 a las 20:55:41 (hora de Atlantic/Canary; 19:55:41 UTC)' */
+export function momentoFirma(iso, tz = 'Atlantic/Canary') {
+  const ms = Date.parse(iso);
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' })
+    .formatToParts(new Date(ms)).map(x => [x.type, x.value]));
+  return `${p.day}/${p.month}/${p.year} a las ${p.hour}:${p.minute}:${p.second} (hora de ${tz}; ${new Date(ms).toISOString().slice(11, 19)} UTC)`;
+}
+
 /** Justificante de una firma para guardar o enseñar en una inspección: el documento firmado y cómo se firmó. */
-export function justificante(firma, persona) {
+export function justificante(firma, persona, tz = 'Atlantic/Canary') {
   const quien = firma.metodo === 'CERTIFICADO' ? leerFirmante(deBase64(firma.firma_cms)) : null;
   return `${firma.documento}\n` +
     `----------------------------------------\n` +
     `Firmado por: ${persona || '—'}\n` +
-    `Fecha de la firma: ${new Date(firma.firmado_en).toISOString()}\n` +
+    `Fecha de la firma: ${momentoFirma(firma.firmado_en, tz)}\n` +
     `Método: ${METODOS[firma.metodo]}${firma.destino ? ' enviado a ' + firma.destino : ''}\n` +
     (quien ? `Certificado: ${[quien.nombre, quien.nif].filter(Boolean).join(' · ')}${quien.emisor ? ' (emitido por ' + quien.emisor + ')' : ''}\n` : '') +
     `Huella SHA-256 del documento: ${firma.huella}\n` +
     (firma.metodo === 'CERTIFICADO' ? 'La firma electrónica (CAdES) se descarga aparte y se puede validar con AutoFirma o en valide.redsara.es.\n' : '');
+}
+
+// ---------- Documento del registro (formato 2) ----------
+// Es el mismo texto que genera _documento_registro_v2 en SQL: el servidor lo usa para firmar y la demo lo usa tal cual.
+// Si cambia algo aquí, hay que cambiarlo igual allí (y al revés), o las firmas dejarían de cuadrar.
+
+const DIAS_SEMANA = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+const QUE = {
+  ENTRADA: 'entrada', SALIDA: 'salida', PAUSA: 'inicio de pausa', REANUDAR: 'vuelta de la pausa',
+  DESPLAZAMIENTO_INICIO: 'salida de desplazamiento', DESPLAZAMIENTO_FIN: 'llegada de desplazamiento', CAMBIO_CLIENTE: 'cambio de cliente',
+};
+const hm = m => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
+const minutosEntre = (a, b) => Math.trunc(Math.round((b - a) / 1000) / 60);
+const partes = (ms, tz) => Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+  .formatToParts(new Date(ms)).map(p => [p.type, p.value]));
+const horaLocal = (ms, tz) => { const p = partes(ms, tz); return `${p.hour}:${p.minute}`; };
+const diaClave = (ms, tz) => { const p = partes(ms, tz); return `${p.year}-${p.month}-${p.day}`; };
+const fechaLocal = (ms, tz) => { const p = partes(ms, tz); return `${p.day}/${p.month}/${p.year} a las ${p.hour}:${p.minute}`; };
+const ddmmaaaa = iso => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
+const diaCorto = iso => `${DIAS_SEMANA[new Date(iso + 'T12:00:00Z').getUTCDay()]} ${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+const ultimoDia = periodo => { const [a, m] = periodo.split('-').map(Number); return `${periodo.slice(0, 8)}${String(new Date(Date.UTC(a, m, 0)).getUTCDate()).padStart(2, '0')}`; };
+const quien = (nombres, id) => (id && nombres[id]?.trim()) || '—';
+const motivo = t => String(t || '').trim().replace(/[.\s]+$/, '') || '—';
+
+/**
+ * Texto del registro de un mes de una persona.
+ * fichajes: los suyos (de cualquier fecha), con anulado = { motivo, anulado_por, anulado_en } si se anuló.
+ * nombres: { user_id: nombre } para decir quién pidió, aprobó o anuló cada cambio.
+ * Devuelve { documento, dias, minutos, abiertos } (abiertos: días sin hora de salida).
+ */
+export function documentoRegistro({ empresa, persona, periodo, tz = 'Atlantic/Canary', fichajes, nombres = {} }) {
+  const hasta = ultimoDia(periodo);
+  const m = f => Date.parse(f.momento_declarado || f.momento);
+  const delMes = fichajes.map(f => ({ ...f, _m: m(f), _d: diaClave(m(f), tz) })).filter(f => f._d >= periodo && f._d <= hasta)
+    .sort((a, b) => a._m - b._m || Date.parse(a.momento) - Date.parse(b.momento) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+
+  // Cambios hechos a mano: correcciones aprobadas y fichajes anulados (sin los de cliente, que no cambian las horas)
+  const cambios = delMes.filter(f => f.tipo !== 'CAMBIO_CLIENTE' && (f.anulado || (f.origen !== 'APP' && f.estado === 'APROBADA')));
+  const refs = {};
+  const lineasCambios = cambios.map((f, i) => {
+    (refs[f._d] = refs[f._d] || []).push(`(${i + 1})`);
+    const que = `${QUE[f.tipo]} a las ${horaLocal(f._m, tz)}`;
+    let t;
+    if (f.anulado) {
+      t = `Se anuló: ${que}. Motivo: ${motivo(f.anulado.motivo)}. Lo anuló ${quien(nombres, f.anulado.anulado_por)} el ${fechaLocal(Date.parse(f.anulado.anulado_en), tz)}.`;
+    } else if (f.origen === 'RESPONSABLE') {
+      t = `Se añadió a mano: ${que}. Lo registró ${quien(nombres, f.registrado_por)} el ${fechaLocal(Date.parse(f.momento), tz)}. Motivo: ${motivo(f.motivo)}.`;
+    } else {
+      t = `Se añadió a mano: ${que}. Lo pidió ${quien(nombres, f.registrado_por)} el ${fechaLocal(Date.parse(f.momento), tz)}. Motivo: ${motivo(f.motivo)}. `
+        + (f.revisado_por ? `Lo aprobó ${quien(nombres, f.revisado_por)}${f.revisado_en ? ' el ' + fechaLocal(Date.parse(f.revisado_en), tz) : ''}.` : 'Aprobado.');
+    }
+    return `(${i + 1}) ${diaCorto(f._d)} · ${t}`;
+  });
+
+  // Días: la misma cuenta que resumen_jornada, con los tramos de trabajo de cada día
+  const dias = [];
+  let d = null, st, tIni, pIni, dIni;
+  for (const f of delMes.filter(x => !x.anulado && (x.origen === 'APP' || x.estado === 'APROBADA'))) {
+    if (!d || d.dia !== f._d) {
+      d = { dia: f._d, entrada: null, salida: null, trabajo: 0, pausa: 0, desp: 0, tramos: [] }; dias.push(d);
+      st = 'FUERA'; tIni = pIni = dIni = null;
+    }
+    const t = f._m;
+    switch (f.tipo) {
+      case 'ENTRADA': if (st === 'FUERA') { st = 'TRABAJANDO'; tIni = t; d.entrada ??= t; d.tramos.push([t, null]); } break;
+      case 'PAUSA': if (st === 'TRABAJANDO') { d.trabajo += minutosEntre(tIni, t); d.tramos.at(-1)[1] = t; st = 'PAUSA'; pIni = t; } break;
+      case 'REANUDAR': if (st === 'PAUSA') { d.pausa += minutosEntre(pIni, t); st = 'TRABAJANDO'; tIni = t; d.tramos.push([t, null]); } break;
+      case 'SALIDA':
+        if (st === 'TRABAJANDO') { d.trabajo += minutosEntre(tIni, t); d.tramos.at(-1)[1] = t; } else if (st === 'PAUSA') d.pausa += minutosEntre(pIni, t);
+        st = 'FUERA'; d.salida = t; break;
+      case 'DESPLAZAMIENTO_INICIO': dIni = t; break;
+      case 'DESPLAZAMIENTO_FIN': if (dIni !== null) { d.desp += minutosEntre(dIni, t); dIni = null; } break;
+    }
+    d.abierta = st === 'TRABAJANDO' || st === 'PAUSA';
+  }
+
+  const conDesp = dias.some(x => x.desp > 0);
+  const fila = (a, b, c, e, g, k) => (a.padEnd(10) + b.padEnd(8) + c.padEnd(12) + e.padStart(7) + g.padStart(7) + (conDesp ? k.padStart(9) : '')).trimEnd();
+  const minutos = dias.reduce((s, x) => s + x.trabajo, 0);
+  const pausas = dias.reduce((s, x) => s + x.pausa, 0);
+  const desp = dias.reduce((s, x) => s + x.desp, 0);
+  const nif = x => x?.trim() ? ` · NIF ${x.trim()}` : '';
+
+  let doc = 'REGISTRO DIARIO DE JORNADA\n'
+    + `Empresa: ${empresa.nombre}${nif(empresa.nif)}\n`
+    + `Persona trabajadora: ${persona.nombre?.trim() || '—'}${nif(persona.nif)}\n`
+    + `Periodo: ${nombreMes(periodo)} (del ${ddmmaaaa(periodo)} al ${ddmmaaaa(hasta)})\n`
+    + `Horas en la hora local de ${tz}\n\n`;
+  if (!dias.length) doc += 'No hay jornadas registradas en este periodo.\n';
+  else {
+    doc += fila('Día', 'Entrada', 'Salida', 'Trabajo', 'Pausas', 'Desplaz.') + '\n';
+    for (const x of dias) {
+      doc += (fila(diaCorto(x.dia), x.entrada ? horaLocal(x.entrada, tz) : '', x.abierta ? 'sin cerrar' : x.salida ? horaLocal(x.salida, tz) : '',
+        hm(x.trabajo), hm(x.pausa), hm(x.desp)) + (refs[x.dia] ? '  ' + refs[x.dia].join('') : '')) + '\n';
+      if (x.tramos.length > 1) doc += ' '.repeat(10) + 'Tramos de trabajo: ' + x.tramos.map(([a, b]) => `${horaLocal(a, tz)}–${b ? horaLocal(b, tz) : 'sin cerrar'}`).join(', ') + '\n';
+    }
+    doc += `\nTotal: ${hm(minutos)} de trabajo en ${dias.length} ${dias.length === 1 ? 'día' : 'días'}. Pausas: ${hm(pausas)}.`
+      + (conDesp ? ` Desplazamientos: ${hm(desp)} (incluidos en el trabajo).` : '') + '\n';
+  }
+  if (lineasCambios.length) doc += '\nCambios hechos a mano en el registro\n' + lineasCambios.join('\n') + '\n';
+  doc += '\nRegistro diario de jornada (artículo 34.9 del Estatuto de los Trabajadores). La empresa lo conserva durante cuatro años'
+    + ' a disposición de la persona trabajadora, de sus representantes legales y de la Inspección de Trabajo y Seguridad Social.\n';
+  return { documento: doc, dias: dias.length, minutos, abiertos: dias.filter(x => x.abierta).length };
 }

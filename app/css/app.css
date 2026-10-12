@@ -340,7 +340,9 @@ body.modo-sa .barra { background: #3b2a55; }
 .item.sa-unidad { display: block; }
 
 /* Firma del registro */
-.documento-firma { max-height: 40vh; overflow: auto; margin: .5rem 0; padding: .6rem; background: var(--fondo); border-radius: 6px; font-size: .78rem; line-height: 1.35; white-space: pre-wrap; word-break: break-word; }
+.documento-firma { font-family: ui-monospace, Menlo, Consolas, monospace; max-height: 40vh; overflow: auto; margin: .5rem 0; padding: .6rem; background: var(--fondo); border-radius: 6px; font-size: .78rem; line-height: 1.35; white-space: pre-wrap; word-break: break-word; }
+/* Las columnas del registro tienen que caber sin partirse en un móvil */
+@media (max-width: 520px) { .documento-firma { font-size: .62rem; padding: .5rem; } }
 .huella code { word-break: break-all; font-size: .75rem; }
 .firma-zona { margin-top: .75rem; }
 .botones-firma { display: grid; gap: .5rem; }

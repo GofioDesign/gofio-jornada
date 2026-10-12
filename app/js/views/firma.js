@@ -10,12 +10,33 @@ import { nombreMes, mesesCerrados, METODOS, ocultar, telefonoE164, aBase64, deBa
 const fechaHora = (x, tz) => new Date(x).toLocaleString('es-ES', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: tz });
 const archivo = (periodo, persona, ext) => `registro-jornada_${periodo.slice(0, 7)}${persona ? '_' + persona.normalize('NFD').replace(/[^\w]+/g, '-').replace(/^-|-$/g, '') : ''}.${ext}`;
 
-/** Descarga el justificante (y, con certificado, la firma CAdES) de una firma guardada. */
-export async function descargarFirma(id, persona, { cms = false } = {}) {
-  const f = await api.firma(id);
-  if (cms) return descargar(archivo(f.periodo, persona, 'csig'), deBase64(f.firma_cms), 'application/pkcs7-signature');
-  descargar(archivo(f.periodo, persona, 'txt').replace('.txt', '_firmado.txt'), justificante(f, persona), 'text/plain;charset=utf-8');
+/** Abre el justificante en una ventana lista para imprimir o guardar en PDF. */
+function imprimir(w, texto, titulo) {
+  const esc = t => t.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  w.document.write(`<!doctype html><meta charset="utf-8"><title>${esc(titulo)}</title>`
+    + '<style>body{margin:2cm 1.5cm;font:10pt/1.45 ui-monospace,Menlo,Consolas,monospace;color:#000}pre{white-space:pre-wrap;font:inherit;margin:0}@page{size:A4;margin:0}</style>'
+    + `<pre>${esc(texto)}</pre>`);
+  w.document.close(); w.focus(); setTimeout(() => w.print(), 200);
 }
+
+/** Descarga el justificante (y, con certificado, la firma CAdES) de una firma guardada, o lo abre para imprimir. */
+export async function descargarFirma(id, persona, { cms = false, imprimir: paraImprimir = false, tz } = {}) {
+  // La ventana se abre antes de esperar al servidor: si no, el navegador la toma por una ventana emergente y la bloquea
+  const w = paraImprimir ? window.open('', '_blank') : null;
+  if (paraImprimir && !w) throw new Error('El navegador ha bloqueado la ventana. Permite las ventanas emergentes para imprimir.');
+  let f;
+  try { f = await api.firma(id); } catch (e) { w?.close(); throw e; }
+  if (cms) return descargar(archivo(f.periodo, persona, 'csig'), deBase64(f.firma_cms), 'application/pkcs7-signature');
+  const texto = justificante(f, persona, tz);
+  if (w) return imprimir(w, texto, archivo(f.periodo, persona, 'pdf').replace('.pdf', ''));
+  descargar(archivo(f.periodo, persona, 'txt').replace('.txt', '_firmado.txt'), texto, 'text/plain;charset=utf-8');
+}
+
+/** Botones del justificante de una firma: descargarlo, imprimirlo y, con certificado, la firma .csig. */
+const botonesFirma = (f, persona, tz) => h('div.fila-botones',
+  h('button.btn', { onclick: e => accion(e.currentTarget, () => descargarFirma(f.id, persona, { tz })) }, 'Descargar justificante'),
+  h('button.btn', { onclick: e => accion(e.currentTarget, () => descargarFirma(f.id, persona, { tz, imprimir: true })) }, 'Imprimir o PDF'),
+  f.metodo === 'CERTIFICADO' ? h('button.btn', { onclick: e => accion(e.currentTarget, () => descargarFirma(f.id, persona, { cms: true })) }, 'Descargar firma (.csig)') : null);
 
 /** Texto corto del estado de la firma de un mes. */
 export function estadoFirma(r, tz) {
@@ -52,10 +73,7 @@ export async function abrirFirma(app, periodo) {
   const persona = app.e.mi_nombre || app.e.usuario_email;
   const hecho = f => {
     firmado = true;
-    montar(zona, h('p.ok-firma', `✓ Registro firmado con ${METODOS[f.metodo]}.`),
-      h('div.fila-botones',
-        h('button.btn', { onclick: e => accion(e.currentTarget, () => descargarFirma(f.id, persona)) }, 'Descargar justificante'),
-        f.metodo === 'CERTIFICADO' ? h('button.btn', { onclick: e => accion(e.currentTarget, () => descargarFirma(f.id, persona, { cms: true })) }, 'Descargar firma (.csig)') : null));
+    montar(zona, h('p.ok-firma', `✓ Registro firmado con ${METODOS[f.metodo]}.`), botonesFirma(f, persona, app.tz));
   };
 
   // ---------- con código por correo o SMS ----------
@@ -131,15 +149,15 @@ export async function abrirFirma(app, periodo) {
   const elegir = () => {
     const estado = estadoFirma(r, app.tz);
     if (r.firma && r.vigente) {
-      return montar(zona, h('p.ok-firma', '✓ ' + estado),
-        h('div.fila-botones',
-          h('button.btn', { onclick: e => accion(e.currentTarget, () => descargarFirma(r.firma.id, persona)) }, 'Descargar justificante'),
-          r.firma.metodo === 'CERTIFICADO' ? h('button.btn', { onclick: e => accion(e.currentTarget, () => descargarFirma(r.firma.id, persona, { cms: true })) }, 'Descargar firma (.csig)') : null));
+      return montar(zona, h('p.ok-firma', '✓ ' + estado), botonesFirma(r.firma, persona, app.tz));
     }
     if (!r.cerrado) return montar(zona, h('p.ayuda', `Podrás firmarlo cuando termine ${nombreMes(r.periodo)}.`));
     if (!r.dias) return montar(zona, h('p.ayuda', 'No tienes jornadas registradas este mes: no hay nada que firmar.'));
+    const n = (k, uno, varios) => `${k} ${k === 1 ? uno : varios}`;
     montar(zona,
       estado ? h('p.aviso-firma', estado) : null,
+      r.pendientes ? h('p.aviso-firma', `Tienes ${n(r.pendientes, 'corrección', 'correcciones')} de este mes sin aprobar todavía. Si firmas ahora y luego se aprueba${r.pendientes === 1 ? '' : 'n'}, tendrás que volver a firmar.`) : null,
+      r.sin_cerrar ? h('p.aviso-firma', `${n(r.sin_cerrar, 'día no tiene', 'días no tienen')} hora de salida («sin cerrar»), así que sus horas no cuentan enteras. Pide una corrección antes de firmar.`) : null,
       h('p', '¿Cómo quieres firmar?'),
       h('div.botones-firma',
         h('button.btn.primario', { onclick: e => conCodigo('EMAIL', e.currentTarget) }, '✉️ Código por correo'),
