@@ -386,7 +386,7 @@ const demo = {
   },
   async saDarDeBaja(org, motivo) {
     const d = db(); const o = d.orgs.find(x => x.id === org);
-    if (o.baja_en) throw new Error('La unidad ya está de baja');
+    if (o.baja_en) throw new Error('La licencia ya está de baja');
     const ultimoFichaje = d.fichajes.filter(f => f.org_id === org).map(f => f.momento_declarado || f.momento).sort().at(-1);
     const ultimaFactura = d.facturas.filter(f => f.org_id === org).map(f => f.fecha).sort().at(-1);
     Object.assign(o, { baja_en: new Date().toISOString(), baja_motivo: motivo || null,
@@ -397,9 +397,9 @@ const demo = {
   async saReactivar(org) { const d = db(); Object.assign(d.orgs.find(x => x.id === org), { baja_en: null, baja_motivo: null, eliminar_desde: null }); guardar(d); },
   async saEliminarUnidad(org, nombre) {
     const d = db(); const o = d.orgs.find(x => x.id === org);
-    if ((nombre || '').trim().toLowerCase() !== o.nombre.trim().toLowerCase()) throw new Error('Escribe el nombre exacto de la unidad para confirmar');
+    if ((nombre || '').trim().toLowerCase() !== o.nombre.trim().toLowerCase()) throw new Error('Escribe el nombre exacto de la licencia para confirmar');
     const registros = d.fichajes.some(f => f.org_id === org) || d.facturas.some(f => f.org_id === org);
-    if (registros && !o.baja_en) throw new Error('La unidad tiene fichajes o facturas: dala de baja y podrás eliminarla cuando acabe el plazo legal');
+    if (registros && !o.baja_en) throw new Error('La licencia tiene fichajes o facturas: dala de baja y podrás eliminarla cuando acabe el plazo legal');
     if (registros && o.eliminar_desde > new Date().toISOString().slice(0, 10)) throw new Error(`Hay que conservar sus datos hasta el ${o.eliminar_desde}`);
     for (const k of Object.keys(d)) if (Array.isArray(d[k])) d[k] = d[k].filter(x => x?.org_id !== org);
     d.orgs = d.orgs.filter(x => x.id !== org); guardar(d);
@@ -407,7 +407,7 @@ const demo = {
   async saCopiaUnidad(org) { const d = db(); return { formato: 'gofio-unidad/1', generada: new Date().toISOString(), empresa: d.orgs.find(o => o.id === org),
     ...Object.fromEntries(['miembros', 'clientes', 'fichajes', 'facturas'].map(k => [k, (d[k] || []).filter(x => x.org_id === org)])) }; },
   async saCrearEmpresa(x) {
-    if (!String(x.nombre || '').trim()) throw new Error('Escribe el nombre de la unidad');
+    if (!String(x.nombre || '').trim()) throw new Error('Escribe el nombre de la licencia');
     const email = String(x.email || '').trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error('Escribe un email válido para el propietario');
     const d = db(); const id = uid();
@@ -428,7 +428,7 @@ const demo = {
     const asientos = plan.por_asientos ? Number(x.asientos) || 1 : 1;
     if (!plan.por_asientos && x.copia_auto) throw new Error('La copia automática va con Jornada Pro equipo');
     const activos = d.miembros.filter(m => m.org_id === id && m.activo).length;
-    if (activos > (plan.max_usuarios ?? asientos)) throw new Error(`La unidad tiene ${activos} personas activas: hay que desactivar a alguien antes de dejarla con menos`);
+    if (activos > (plan.max_usuarios ?? asientos)) throw new Error(`La licencia tiene ${activos} personas activas: hay que desactivar a alguien antes de dejarla con menos`);
     o.usa_facturacion = !x.facturacion ? false : !o.tester_facturacion ? true : o.usa_facturacion;
     Object.assign(o, { plan_id: x.plan, plan_hasta: x.plan_hasta || null, asientos, copia_auto: !!x.copia_auto, tester_facturacion: !!x.facturacion }); guardar(d);
   },

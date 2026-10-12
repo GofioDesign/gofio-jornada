@@ -26,7 +26,7 @@ export async function vistaAjustes(app, seccion) {
   }
   if (app.superadmin) bloques.unshift(h('div.tarjeta.destacada', { id: 'superadmin' },
     h('h2', 'Superadministración'),
-    h('p.ayuda', 'Gestión de la plataforma Gofio Jornada: alta de unidades, planes y acceso a facturación. Es aparte de tu empresa.'),
+    h('p.ayuda', 'Gestión de la plataforma Gofio Jornada: alta de licencias, planes, asientos y acceso a facturación. Es aparte de tu empresa.'),
     h('a.btn.primario', { href: '#/sa' }, 'Entrar en modo superadmin')));
   const raiz = h('section.pila', h('h1', 'Ajustes'), bloques,
     h('p.ayuda.pie', `Gofio Jornada ${CONFIG.VERSION}${DEMO ? ' · modo demo' : ''} · ${CONFIG.SOPORTE_EMAIL}`));

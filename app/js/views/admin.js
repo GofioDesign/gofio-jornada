@@ -1,5 +1,5 @@
-// Superadministración (solo Gofio Design): alta de unidades (empresas) y su plan y acceso a facturación.
-// Crear una unidad deja una invitación de propietario: esa persona entra en la app con su email y la acepta.
+// Superadministración (solo Gofio Design): alta de licencias (empresas), su plan, asientos y acceso a facturación.
+// Crear una licencia deja una invitación de propietario: esa persona entra en la app con su email y la acepta.
 import { api } from '../api.js';
 import { h, montar, accion, aviso, fecha } from '../ui.js';
 import { descargar } from '../lib/csv.js';
@@ -16,7 +16,7 @@ export async function vistaAdmin(app) {
   };
   const nombrePlan = id => planes.find(p => p.id === id)?.nombre || id;
   const lista = h('div');
-  const buscar = h('input', { type: 'search', placeholder: 'Buscar unidad, NIF o email…', 'aria-label': 'Buscar' });
+  const buscar = h('input', { type: 'search', placeholder: 'Buscar licencia, NIF o email…', 'aria-label': 'Buscar' });
   let empresas = [];
 
   // Invitación del propietario: reenviar el correo, cambiar el email o anularla
@@ -57,10 +57,10 @@ export async function vistaAdmin(app) {
   // Eliminar (sin empezar) o dar de baja (ya tiene fichajes o facturas: se conservan el plazo legal)
   const hoy = new Date().toISOString().slice(0, 10);
   const largo = d => new Date(String(d).slice(0, 10) + 'T12:00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
-  // la unidad puede ser la empresa del propio superadmin: se recargan sus empresas para el menú
+  // la licencia puede ser la empresa del propio superadmin: se recargan sus empresas para el menú
   const recargar = async () => { if (app) await app.recargar(); else await cargar(); };
   const eliminar = (e, btn) => {
-    const nombre = prompt(`Se borrará «${e.nombre}» con todos sus datos y no se podrá deshacer.\n\nEscribe el nombre de la unidad para confirmar:`);
+    const nombre = prompt(`Se borrará «${e.nombre}» con todos sus datos y no se podrá deshacer.\n\nEscribe el nombre de la licencia para confirmar:`);
     if (nombre === null) return;
     accion(btn, async () => { await api.saEliminarUnidad(e.id, nombre); aviso(`${e.nombre} eliminada`, 'ok'); await recargar(); });
   };
@@ -79,7 +79,7 @@ export async function vistaAdmin(app) {
           : h('span.ayuda', 'Se podrá eliminar a partir de esa fecha.')));
     if (!e.con_registros) return h('div.fila-botones.sa-baja',
       h('span.ayuda', 'Aún no ha empezado (sin fichajes ni facturas): se puede eliminar.'),
-      h('button.btn.mini.peligro', { type: 'button', onclick: ev => eliminar(e, ev.currentTarget) }, 'Eliminar unidad'));
+      h('button.btn.mini.peligro', { type: 'button', onclick: ev => eliminar(e, ev.currentTarget) }, 'Eliminar licencia'));
     return h('div.fila-botones.sa-baja',
       h('button.btn.mini', { type: 'button', onclick: ev => copia(e, ev.currentTarget) }, 'Descargar copia'),
       h('button.btn.mini.peligro', { type: 'button', onclick: ev => {
@@ -92,28 +92,30 @@ export async function vistaAdmin(app) {
       } }, 'Dar de baja'));
   };
 
+  // Asientos de la licencia: los contratados en Pro equipo; en Jornada, los que permite el plan (1)
+  const enUso = e => { const n = porAsientos(e.plan_id) ? e.asientos : planes.find(p => p.id === e.plan_id)?.max_usuarios; return n ? `${e.usuarios} de ${n} ${n === 1 ? 'asiento' : 'asientos'} en uso` : `${e.usuarios} ${e.usuarios === 1 ? 'persona' : 'personas'}`; };
   const cuota = e => { const t = cuotaMensual(e, planes.find(p => p.id === e.plan_id), extras).total; return t > 0 ? `${t.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}/mes` : null; };
   const titulo = h('h2');
   const pintar = () => {
-    titulo.textContent = `Todas las unidades (${empresas.length})`;
+    titulo.textContent = `Todas las licencias (${empresas.length})`;
     const q = buscar.value.trim().toLowerCase();
     const r = empresas.filter(e => !q || [e.nombre, e.nif, e.propietario, e.invitacion_pendiente].some(x => String(x || '').toLowerCase().includes(q)));
     montar(lista, r.length ? h('div.lista', r.map(e => h('details.item.sa-unidad',
       h('summary',
         h('strong', e.nombre), e.baja_en ? h('span.etiqueta.baja', 'de baja') : null, ' ',
         h('span.ayuda', [e.nif, nombrePlan(e.plan_id) + (e.plan_hasta ? ` hasta ${fecha(e.plan_hasta)}` : ''),
-          porAsientos(e.plan_id) ? `${e.usuarios} de ${e.asientos} asientos` : `${e.usuarios} ${e.usuarios === 1 ? 'usuario' : 'usuarios'}`,
+          enUso(e),
           e.copia_auto ? 'copia automática' : null, e.tester_facturacion ? 'facturación' : null, cuota(e)].filter(Boolean).join(' · ')),
         h('div.ayuda', e.propietario ? `Propietario: ${e.propietario}` : e.invitacion_pendiente ? `Invitación pendiente: ${e.invitacion_pendiente}` : 'Sin propietario',
           ` · alta ${fecha(String(e.creado_en).slice(0, 10))}`, e.ultimo_fichaje ? ` · último fichaje ${fecha(String(e.ultimo_fichaje).slice(0, 10))}` : '')),
-      e.baja_en ? null : invitacion(e), e.baja_en ? null : editar(e), ciclo(e)))) : h('p.vacio', 'No hay unidades con ese filtro.'));
+      e.baja_en ? null : invitacion(e), e.baja_en ? null : editar(e), ciclo(e)))) : h('p.vacio', 'No hay licencias con ese filtro.'));
   };
   const cargar = async () => { empresas = await api.saEmpresas(); pintar(); };
   buscar.addEventListener('input', pintar);
 
   const nombre = h('input', { id: 'sa-nombre', required: true, placeholder: 'Nombre comercial' });
   const nif = h('input', { id: 'sa-nif', placeholder: 'Opcional' });
-  const email = h('input', { id: 'sa-email', type: 'email', required: true, placeholder: 'email@unidad.com' });
+  const email = h('input', { id: 'sa-email', type: 'email', required: true, placeholder: 'email@empresa.com' });
   const plan = h('select', { id: 'sa-plan' }, planes.map(p => h('option', { value: p.id }, p.nombre)));
   const asientos = h('input', { id: 'sa-asientos', type: 'number', min: 1, step: 1, value: 1 });
   const copiaAuto = h('input', { id: 'sa-copia', type: 'checkbox' });
@@ -124,23 +126,23 @@ export async function vistaAdmin(app) {
       ev.preventDefault();
       accion(form.querySelector('button'), async () => {
         await api.saCrearEmpresa({ nombre: nombre.value, nif: nif.value, email: email.value, plan: plan.value, asientos: asientos.value, copia_auto: copiaAuto.checked, facturacion: fact.checked });
-        if (await avisarInvitado(email.value)) aviso(`Unidad creada. Le hemos enviado a ${email.value.trim()} un correo para entrar y aceptarla.`, 'ok');
+        if (await avisarInvitado(email.value)) aviso(`Licencia creada. Le hemos enviado a ${email.value.trim()} un correo para entrar y aceptarla.`, 'ok');
         form.reset(); plan.dispatchEvent(new Event('change')); await cargar();
       });
     },
   },
-    h('div.dos', h('div', h('label', { for: 'sa-nombre' }, 'Nombre de la unidad'), nombre), h('div', h('label', { for: 'sa-nif' }, 'NIF'), nif)),
+    h('div.dos', h('div', h('label', { for: 'sa-nombre' }, 'Nombre de la licencia'), nombre), h('div', h('label', { for: 'sa-nif' }, 'NIF'), nif)),
     h('div.dos', h('div', h('label', { for: 'sa-email' }, 'Email del propietario'), email), h('div', h('label', { for: 'sa-plan' }, 'Plan'), plan)),
     h('div.dos', h('div', h('label', { for: 'sa-asientos' }, 'Asientos (Pro equipo)'), asientos), h('div')),
     h('label.check', copiaAuto, ' Copia automática (todos los asientos)'),
     h('label.check', fact, ' Activar facturación'),
-    h('p.ayuda', 'La unidad se crea vacía. Su propietario recibe un correo con el enlace para entrar, acepta la invitación y completa los datos de la empresa en Ajustes.'),
+    h('p.ayuda', 'La licencia se crea vacía. Su propietario recibe un correo con el enlace para entrar, acepta la invitación y completa los datos de la empresa en Ajustes.'),
     h('button.btn.primario', { type: 'submit' }, 'Dar de alta'));
 
   await cargar();
   return h('section.pila',
-    h('h1', 'Unidades'),
+    h('h1', 'Licencias'),
     h('p.ayuda', 'Modo superadmin: gestionas la plataforma, no tu empresa. Para volver, usa «Volver a mi empresa» en el menú.'),
-    h('div.tarjeta', h('h2', 'Nueva unidad'), form),
+    h('div.tarjeta', h('h2', 'Nueva licencia'), form),
     h('div.tarjeta', titulo, h('div.filtros', buscar), lista));
 }
