@@ -11,10 +11,12 @@ import { vistaFacturacion } from './views/facturacion.js';
 import { vistaAdmin } from './views/admin.js';
 import { vistaPersonal } from './views/personal.js';
 import { usaPersonal } from './lib/personal.js';
+import { ESPACIOS, espaciosDisponibles, espacioActivo, menuDe } from './lib/espacios.js';
 
 const $vista = document.getElementById('vista');
 const $menu = document.getElementById('menu');
 const $empresa = document.getElementById('empresa');
+const $espacios = document.getElementById('espacios');
 
 export const app = {
   empresas: [], org: null,
@@ -23,6 +25,7 @@ export const app = {
   get uso() { return this.e?.config?.uso || null; },   // sondeo inicial: personal, profesional, ambos o indeciso
   get miTiempo() { return usaPersonal(this.uso) || preferencia('mi-tiempo') === 'si'; },
   get tz() { return this.e?.config?.zona_horaria || 'Atlantic/Canary'; },
+  get espacios() { return espaciosDisponibles(this.uso, this.miTiempo); },   // Personal y/o Pro (los botones de abajo)
   get facturacion() { return !!(this.e?.tester_facturacion && this.e?.usa_facturacion && ['propietario', 'admin', 'gestoria'].includes(this.rol)); },
   async recargar() { await cargarEmpresas(); router(); },
 };
@@ -62,41 +65,56 @@ function pintarCabecera(modoSA = false) {
 
 function pintarMenu(ruta, modoSA = false) {
   // Modo superadmin: gestión de la plataforma, aparte del menú de la empresa
+  const espacio = modoSA ? null : espacioActivo(app.espacios, ruta, preferencia('espacio'));
+  if (espacio) preferencia('espacio', espacio);
+  document.querySelector('.marca')?.setAttribute('href', ESPACIOS[espacio]?.inicio || '#/');
   const items = modoSA ? [
     ['#/sa', 'Licencias', 'equipo'],
     app.e && ['#/', 'Volver a mi empresa', 'reloj'],
-  ].filter(Boolean) : app.uso === 'personal' ? [
-    ['#/personal', 'Mi tiempo', 'crono'],
-    ['#/jornada', 'Jornada', 'reloj'],
-    ['#/ajustes', 'Ajustes', 'ajustes'],
-  ] : [
-    ['#/', 'Jornada', 'reloj'],
-    app.miTiempo && ['#/personal', 'Mi tiempo', 'crono'],
-    ['#/clientes', 'Clientes', 'pin'],
-    ['#/proyectos', 'Proyectos', 'carpeta'],
-    puedeVerEquipo(app.rol) && ['#/equipo', 'Equipo', 'equipo'],
-    puedeVerEquipo(app.rol) && ['#/tiempos', 'Tiempos', 'reparto'],
-    app.facturacion && ['#/facturacion', 'Facturación', 'factura'],
-    ['#/ajustes', 'Ajustes', 'ajustes'],
-  ].filter(Boolean);
+  ].filter(Boolean) : menuDe(espacio, { uso: app.uso, verEquipo: puedeVerEquipo(app.rol), facturacion: app.facturacion });
   $menu.hidden = false;
   montar($menu, items.map(([href, txt, ic]) => h('a', { href, class: (ruta === href || (href !== '#/' && ruta.startsWith(href))) ? 'activo' : '' },
     h('span.icono.' + ic, { 'aria-hidden': 'true' }), h('span', txt))));
+  $menu.querySelector('.activo')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });   // en el móvil el menú se desliza de lado
+  pintarEspacios(modoSA ? [] : app.espacios, espacio);
 }
+
+// Botones de abajo: cambian de espacio y, con él, las secciones de la cabecera. Solo salen si hay más de uno.
+function pintarEspacios(disponibles, activo) {
+  const ver = disponibles.length > 1;
+  $espacios.hidden = !ver;
+  document.body.classList.toggle('con-espacios', ver);
+  if (!ver) return $espacios.replaceChildren();
+  montar($espacios, disponibles.map(id => h('button', {
+    type: 'button', class: id === activo ? 'activo' : '', 'aria-pressed': String(id === activo),
+    onclick: () => {
+      if (id === activo) return;
+      preferencia('espacio', id);
+      location.hash = ESPACIOS[id].inicio;
+    },
+  }, h('span.icono.' + ESPACIOS[id].icono, { 'aria-hidden': 'true' }), h('span', ESPACIOS[id].nombre))));
+}
+
+let entrado = false;   // la primera vista de la sesión abre el último espacio usado
 
 async function router() {
   const ruta = location.hash || '#/';
   try {
     const sesion = await api.sesion();
-    if (!sesion) { $menu.hidden = true; $empresa.replaceChildren(); return montar($vista, await vistaLogin()); }
+    if (!sesion) { $menu.hidden = true; pintarEspacios([]); $empresa.replaceChildren(); return montar($vista, await vistaLogin()); }
     if (!app.empresas.length) await cargarEmpresas();
     if (ruta.startsWith('#/sa') && app.superadmin) {
       pintarCabecera(true); pintarMenu('#/sa', true);
       montar($vista, await vistaAdmin(app)); $vista.focus?.(); return;
     }
-    if (!app.e) { pintarCabecera(); $menu.hidden = true; return montar($vista, await vistaAlta(app)); }
-    // Uso personal: se entra por «Mi tiempo» (salvo si se abrió desde una etiqueta NFC, que pregunta en la Jornada)
-    if (app.uso === 'personal' && ruta === '#/' && !app.nfc && !app.qr) { location.replace('#/personal'); return; }
+    if (!app.e) { pintarCabecera(); $menu.hidden = true; pintarEspacios([]); return montar($vista, await vistaAlta(app)); }
+    // Se entra por el espacio de la última vez (o por «Mi tiempo» si el uso es solo personal),
+    // salvo si se abrió desde una etiqueta NFC o un QR, que preguntan en la Jornada
+    if (ruta === '#/' && !app.nfc && !app.qr && !app.espacios.includes('pro')) { location.replace('#/personal'); return; }
+    if (!entrado) {
+      entrado = true;
+      if (ruta === '#/' && !app.nfc && !app.qr && app.espacios.includes('personal') && preferencia('espacio') === 'personal') { location.replace('#/personal'); return; }
+    }
     pintarCabecera(); pintarMenu(ruta);
     const [, seccion, id, sub] = ruta.replace(/^#\/?/, '#/').split('/');
     let v;

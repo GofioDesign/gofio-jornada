@@ -2,7 +2,7 @@
   --fondo: #f5f3ee; --superficie: #ffffff; --texto: #1d231f; --suave: #5f6b63; --borde: #e2ddd2;
   --marca: #1f3a2e; --marca-2: #2f5a45; --acento: #c8963e; --ok: #2e7d4f; --pausa: #b7791f; --peligro: #b3261e;
   --radio: 14px; --sombra: 0 1px 2px rgb(0 0 0 / .06), 0 4px 16px rgb(0 0 0 / .04);
-  --menu-alto: 64px;
+  --menu-alto: 0px;   /* alto de los botones de espacio de abajo (solo si se ven) */
   color-scheme: light;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
@@ -16,7 +16,7 @@ html, body { margin: 0; background: var(--fondo); color: var(--texto); font-size
 a { color: var(--marca-2); }
 h1 { font-size: 1.5rem; margin: 0; } h2 { font-size: 1.1rem; margin: 0 0 .75rem; } h3 { font-size: 1rem; margin: 1rem 0 .5rem; }
 
-.barra { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+.barra { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px;
   padding: 10px 16px; padding-top: max(10px, env(safe-area-inset-top)); background: var(--marca); color: #fff; }
 @media (prefers-color-scheme: dark) { .barra { background: #18251e; } }
 .marca { color: #fff; text-decoration: none; font-weight: 800; font-size: 1.1rem; letter-spacing: -.01em; }
@@ -125,11 +125,24 @@ input[type=checkbox], input[type=radio] { width: 20px; min-height: 20px; height:
 .volver { text-decoration: none; font-weight: 600; }
 .ventajas { padding-left: 20px; }
 
-/* Menú inferior (móvil) / lateral superior (escritorio) */
-.menu { position: fixed; bottom: 0; left: 0; right: 0; z-index: 5; display: flex; justify-content: space-around; height: calc(var(--menu-alto) + env(safe-area-inset-bottom));
-  padding-bottom: env(safe-area-inset-bottom); background: var(--superficie); border-top: 1px solid var(--borde); }
-.menu a { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: .72rem; color: var(--suave); text-decoration: none; }
-.menu a.activo { color: var(--marca); font-weight: 700; }
+/* Menú de secciones en la cabecera (segunda fila en el móvil) */
+.menu { order: 3; display: flex; gap: 2px; width: calc(100% + 32px); margin: 0 -16px -6px; padding: 0 10px; overflow-x: auto; scrollbar-width: none; }
+.menu::-webkit-scrollbar { display: none; }
+.menu a { flex: none; display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-radius: 10px; font-size: .88rem; white-space: nowrap;
+  color: rgb(255 255 255 / .75); text-decoration: none; }
+.menu a.activo { color: #fff; font-weight: 700; background: rgb(255 255 255 / .12); }
+.menu .icono { width: 18px; height: 18px; }
+
+/* Botones de espacio abajo (Personal / Pro) */
+body.con-espacios { --menu-alto: 60px; }
+.espacios { position: fixed; bottom: 0; left: 0; right: 0; z-index: 5; display: flex; gap: 8px; height: calc(var(--menu-alto) + env(safe-area-inset-bottom));
+  padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); background: var(--superficie); border-top: 1px solid var(--borde); }
+.espacios button { flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--borde); border-radius: 12px;
+  background: var(--fondo); color: var(--suave); font: inherit; font-weight: 600; cursor: pointer; }
+.espacios button.activo { background: var(--marca); border-color: var(--marca); color: #fff; }
+@media (prefers-color-scheme: dark) { .espacios button.activo { color: #0f1a14; } }
+.espacios button:focus-visible { outline: 3px solid var(--acento); outline-offset: 1px; }
+.icono.maletin { --i: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M3 13h18"/></svg>'); }
 .icono { width: 24px; height: 24px; background: currentColor; -webkit-mask: var(--i) center / contain no-repeat; mask: var(--i) center / contain no-repeat; }
 .icono.reloj { --i: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>'); }
 .icono.pin { --i: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>'); }
@@ -141,11 +154,12 @@ input[type=checkbox], input[type=radio] { width: 20px; min-height: 20px; height:
 .icono.ajustes { --i: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>'); }
 @media (min-width: 900px) {
   .vista:has(.catalogo-productos) { max-width: 1100px; }
-  .menu { top: 0; bottom: auto; left: 50%; right: auto; transform: translateX(-50%); height: 56px; background: transparent; border: 0; gap: 4px; padding: 0; }
-  .menu a { flex-direction: row; gap: 6px; font-size: .9rem; color: rgb(255 255 255 / .75); padding: 0 12px; }
-  .menu a.activo { color: #fff; }
-  .icono { width: 18px; height: 18px; }
-  .vista { padding-bottom: 32px; }
+  .menu { order: 1; flex: 1; width: auto; margin: 0; padding: 0; justify-content: center; gap: 4px; }
+  .menu a { font-size: .9rem; padding: 8px 12px; }
+  .empresa { order: 2; }
+  .espacios { left: 50%; right: auto; transform: translateX(-50%); bottom: 12px; width: 320px; height: auto; padding: 6px; border: 1px solid var(--borde);
+    border-radius: 16px; box-shadow: var(--sombra); }
+  .espacios button { padding: 10px; }
 }
 
 /* Diálogos y avisos */
@@ -213,7 +227,7 @@ input[type=checkbox], input[type=radio] { width: 20px; min-height: 20px; height:
      ni la cabecera/pie del navegador). El margen lo pone el relleno de la hoja. */
   @page { size: A4; margin: 0; }
   html, body { background: #fff !important; color-scheme: light; }
-  .barra, .menu, .aviso, .no-imprimir { display: none !important; }
+  .barra, .menu, .espacios, .aviso, .no-imprimir { display: none !important; }
   .vista { max-width: none; padding: 0 !important; margin: 0; }
   .vista > .pila { gap: 0; }
   .doc-factura { box-shadow: none; border-radius: 0; width: 210mm; min-height: 296mm; padding: 14mm;
