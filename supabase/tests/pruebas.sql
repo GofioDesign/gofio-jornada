@@ -748,7 +748,11 @@ do $$ declare r jsonb := (select r from reg); begin
   if (r->>'dias')::int <> 1 or (r->>'minutos')::int <> 480 or not (r->>'cerrado')::boolean or r->'firma' <> 'null'::jsonb then
     raise exception 'registro_para_firmar: %', r;
   end if;
-  if position('2025-03-03;08:00;16:00;8:00;0:00;0:00;2' in r->>'documento') = 0 or position('Total: 8:00 de trabajo en 1 día' in r->>'documento') = 0 then
+  -- formato 2 (0034): fila del día con referencias a los cambios hechos a mano, y cada cambio explicado
+  if position('lun 03/03 08:00   16:00          8:00   0:00  (1)(2)' in r->>'documento') = 0
+     or position('Total: 8:00 de trabajo en 1 día. Pausas: 0:00.' in r->>'documento') = 0
+     or position('(1) lun 03/03 · Se añadió a mano: entrada a las 08:00. Lo registró Juan el ' in r->>'documento') = 0
+     or position('Motivo: prueba firma.' in r->>'documento') = 0 then
     raise exception 'documento: %', r->>'documento';
   end if;
 end $$;
@@ -804,6 +808,25 @@ do $$ declare doc bytea := convert_to((select r->>'documento' from reg), 'UTF8')
   select * into e from public.estado_firmas((select org from ctx), '2025-03-01') where user_id = '00000000-0000-0000-0000-00000000000b';
   if e.metodo <> 'CERTIFICADO' or not e.vigente then raise exception 'estado_firmas tras firmar con certificado: %', row_to_json(e); end if;
 end $$;
+-- una firma hecha antes de la 0034 (formato 1) sigue vigente y se enseña tal como se firmó
+reset role;
+select public._insertar_fichaje((select org from ctx), '00000000-0000-0000-0000-00000000000b', 'ENTRADA', null, null, null, null, null,
+  'RESPONSABLE', timestamptz '2025-02-03 08:00 Atlantic/Canary', null, 'prueba firma', 'APROBADA');
+select public._insertar_fichaje((select org from ctx), '00000000-0000-0000-0000-00000000000b', 'SALIDA', null, null, null, null, null,
+  'RESPONSABLE', timestamptz '2025-02-03 15:00 Atlantic/Canary', null, 'prueba firma', 'APROBADA');
+insert into firmas_registro (org_id, user_id, periodo, documento, huella, dias, minutos, metodo, destino)
+  select (select org from ctx), '00000000-0000-0000-0000-00000000000b', '2025-02-01', d.documento, d.huella, d.dias, d.minutos, 'EMAIL', 'empleado@gofio.test'
+    from public._documento_registro((select org from ctx), '00000000-0000-0000-0000-00000000000b', '2025-02-01') d;
+set role authenticated;
+select pg_temp.como('00000000-0000-0000-0000-00000000000b', 'empleado@gofio.test');
+do $$ declare r jsonb := public.registro_para_firmar((select org from ctx), '2025-02-01'); e record; begin
+  if not (r->>'vigente')::boolean or position('2025-02-03;08:00;15:00;7:00' in r->>'documento') = 0 then
+    raise exception 'la firma del formato 1 debería seguir vigente: %', r;
+  end if;
+  perform pg_temp.como('00000000-0000-0000-0000-00000000000a', 'propietario@gofio.test');
+  select * into e from public.estado_firmas((select org from ctx), '2025-02-01') where user_id = '00000000-0000-0000-0000-00000000000b';
+  if not e.vigente then raise exception 'estado_firmas con firma del formato 1: %', row_to_json(e); end if;
+end $$;
 -- otra empresa no ve las firmas
 select pg_temp.como('00000000-0000-0000-0000-00000000000c', 'otra@empresa.test');
 do $$ begin if exists (select 1 from firmas_registro) then raise exception 'fuga de firmas'; end if; end $$;
@@ -829,6 +852,47 @@ create temp table tarea_ajena as select id from tareas_personales where nombre =
 grant select on tarea_ajena to authenticated;
 set role authenticated;
 select pg_temp.debe_fallar($$insert into tiempos_personales (tarea_id) select id from tarea_ajena$$, 'row-level security');
+reset role;
+
+-- ===== 0033. Pasar a «Mi tiempo» lo fichado en un proyecto personal =====
+reset role;
+create temp table hogar (id uuid);
+with p as (insert into proyectos (org_id, nombre, creado_en) values ((select org from ctx), 'Hogar - tender ropa', '2026-09-01') returning id)
+insert into hogar select id from p;
+grant select on hogar to authenticated;
+do $$ declare o uuid := (select org from ctx); a uuid := '00000000-0000-0000-0000-00000000000a'; h uuid := (select id from hogar);
+              x uuid := (select id from clientes where org_id = (select org from ctx) order by nombre limit 1);
+begin
+  perform public._insertar_fichaje(o, a, 'ENTRADA', null, null, null, null, null, 'RESPONSABLE', timestamptz '2026-09-15 08:00 Atlantic/Canary', null, 'prueba', 'APROBADA');
+  perform public._insertar_fichaje(o, a, 'CAMBIO_CLIENTE', null, null, null, null, null, 'RESPONSABLE', timestamptz '2026-09-15 10:00 Atlantic/Canary', null, 'prueba', 'APROBADA', h);
+  perform public._insertar_fichaje(o, a, 'CAMBIO_CLIENTE', null, null, null, x, null, 'RESPONSABLE', timestamptz '2026-09-15 10:30 Atlantic/Canary', null, 'prueba', 'APROBADA');
+  perform public._insertar_fichaje(o, a, 'CAMBIO_CLIENTE', null, null, null, null, null, 'RESPONSABLE', timestamptz '2026-09-15 12:00 Atlantic/Canary', null, 'prueba', 'APROBADA', h);
+  perform public._insertar_fichaje(o, a, 'SALIDA', null, null, null, null, null, 'RESPONSABLE', timestamptz '2026-09-15 12:45 Atlantic/Canary', null, 'prueba', 'APROBADA');
+end $$;
+set role authenticated;
+select pg_temp.como('00000000-0000-0000-0000-00000000000a', 'propietario@gofio.test');
+do $$ declare r record; tr text; begin
+  select * into r from public.pasar_a_mi_tiempo((select org from ctx), (select id from hogar), 'Ropa (casa)');
+  if r.tramos <> 2 or r.minutos <> 75 or r.omitidos <> 0 then raise exception 'pasar a mi tiempo: %', to_jsonb(r); end if;
+  -- la jornada: el tiempo de casa queda como pausa y el resto sigue igual
+  select string_agg(t.tipo || ' ' || to_char(t.inicio at time zone 'Atlantic/Canary', 'HH24:MI') || '-' || to_char(t.fin at time zone 'Atlantic/Canary', 'HH24:MI'), ' ' order by t.inicio)
+    into tr from public.tramos_jornada((select org from ctx), '2026-09-15', '2026-09-15', '00000000-0000-0000-0000-00000000000a') t;
+  if tr <> 'TRABAJO 08:00-10:00 PAUSA 10:00-10:30 TRABAJO 10:30-12:00 PAUSA 12:00-12:45' then raise exception 'tramos tras pasar: %', tr; end if;
+  select * into r from public.resumen_jornada((select org from ctx), '2026-09-15', '2026-09-15', '00000000-0000-0000-0000-00000000000a');
+  if r.minutos_trabajo <> 210 or r.minutos_pausa <> 75 then raise exception 'resumen tras pasar: %', to_jsonb(r); end if;
+  -- en Mi tiempo, con sus horas
+  if (select count(*) from tiempos_personales tp join tareas_personales ta on ta.id = tp.tarea_id where ta.nombre = 'Ropa (casa)') <> 2
+     or (select sum(extract(epoch from fin - inicio)) / 60 from tiempos_personales) <> 75 then raise exception 'tiempos personales'; end if;
+  -- repetirlo no duplica ni vuelve a corregir
+  select * into r from public.pasar_a_mi_tiempo((select org from ctx), (select id from hogar), 'Ropa (casa)');
+  if r.tramos <> 0 or (select count(*) from tiempos_personales) <> 2 then raise exception 'repetir: %', to_jsonb(r); end if;
+  -- las correcciones quedan en el registro con su motivo; los fichajes originales siguen ahí
+  if (select count(*) from fichajes where motivo like 'Tiempo personal pasado a Mi tiempo%') <> 3 then raise exception 'correcciones'; end if;
+end $$;
+-- otra persona no ve ese tiempo personal
+select pg_temp.como('00000000-0000-0000-0000-00000000000b', 'empleado@gofio.test');
+do $$ begin if exists (select 1 from tiempos_personales tp join tareas_personales ta on ta.id = tp.tarea_id where ta.nombre = 'Ropa (casa)') then raise exception 'fuga'; end if; end $$;
+select pg_temp.debe_fallar($$select * from public.pasar_a_mi_tiempo((select org from ctx), (select id from hogar), ' ')$$, 'nombre de la tarea');
 reset role;
 
 -- ===== 0029. Eliminar y dar de baja unidades =====

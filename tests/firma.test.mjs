@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mesAnterior, mesesCerrados, nombreMes, ocultar, telefonoE164, aBase64, deBase64, bytesDeArchivo, esFirmaDe, leerFirmante, justificante } from '../app/js/lib/firma.js';
+import { mesAnterior, mesesCerrados, nombreMes, ocultar, telefonoE164, aBase64, deBase64, bytesDeArchivo, esFirmaDe, leerFirmante, justificante, momentoFirma, documentoRegistro } from '../app/js/lib/firma.js';
 
 // Firmas CAdES hechas con openssl sobre DOC (certificado de prueba autofirmado, como uno de la FNMT):
 //   openssl cms -sign -binary -md sha512 -in doc.txt -signer c.pem -inkey k.pem -outform DER            (separada, SHA-512, como AutoFirma)
@@ -54,4 +54,61 @@ test('justificante de la firma', () => {
   const c = justificante({ ...base, metodo: 'CERTIFICADO', firma_cms: SEPARADA }, 'Ana');
   assert.match(c, /Certificado: ANA PÉREZ GARCÍA · 12345678Z/);
   assert.match(c, /AutoFirma/);
+});
+
+test('fecha de la firma en hora local y UTC', () => {
+  assert.equal(momentoFirma('2026-10-11T19:55:41.854Z', 'Atlantic/Canary'), '11/10/2026 a las 20:55:41 (hora de Atlantic/Canary; 19:55:41 UTC)');
+  assert.equal(momentoFirma('2026-01-15T08:00:00Z', 'Europe/Madrid'), '15/01/2026 a las 09:00:00 (hora de Europe/Madrid; 08:00:00 UTC)');
+  const t = justificante({ documento: DOC, huella: 'abc', firmado_en: '2026-10-11T19:55:41Z', metodo: 'EMAIL', destino: 'ana@x.es' }, 'Ana', 'Atlantic/Canary');
+  assert.match(t, /Fecha de la firma: 11\/10\/2026 a las 20:55:41/);
+});
+
+// Mismo caso que se comprobó contra _documento_registro_v2 en PostgreSQL: el texto tiene que salir idéntico
+test('documento del registro (formato 2): tramos, cambios a mano y totales', () => {
+  const F = (id, tipo, momento, x = {}) => ({ id, tipo, momento, origen: 'APP', registrado_por: 'u1', ...x });
+  const fichajes = [
+    F('a1', 'ENTRADA', '2026-09-23T11:25:10Z'), F('a2', 'PAUSA', '2026-09-23T13:00:00Z'), F('a3', 'REANUDAR', '2026-09-23T13:30:29Z'),
+    F('a4', 'SALIDA', '2026-09-24T08:00:00Z', { origen: 'CORRECCION', momento_declarado: '2026-09-23T15:35:00Z', motivo: 'olvidé fichar. ', estado: 'APROBADA', revisado_por: 'u2', revisado_en: '2026-09-24T09:00:00Z' }),
+    F('a5', 'SALIDA', '2026-09-23T16:00:00Z', { anulado: { motivo: 'error', anulado_por: 'u2', anulado_en: '2026-09-24T09:01:00Z' } }),
+    F('a6', 'ENTRADA', '2026-09-25T09:00:00Z', { origen: 'CORRECCION', momento_declarado: '2026-09-25T06:00:00Z', motivo: 'x', estado: 'PENDIENTE' }),
+    F('b1', 'ENTRADA', '2026-09-25T07:00:00Z'), F('b2', 'DESPLAZAMIENTO_INICIO', '2026-09-25T08:00:00Z'), F('b3', 'DESPLAZAMIENTO_FIN', '2026-09-25T08:40:00Z'),
+    F('b4', 'SALIDA', '2026-09-25T10:00:00Z'), F('b5', 'ENTRADA', '2026-09-25T14:00:00Z'),
+    F('b6', 'CAMBIO_CLIENTE', '2026-09-26T08:00:00Z', { origen: 'RESPONSABLE', momento_declarado: '2026-09-25T07:30:00Z', motivo: 'Cliente asignado a posteriori', estado: 'APROBADA', registrado_por: 'u2' }),
+    F('c1', 'ENTRADA', '2026-10-02T10:00:00Z', { origen: 'RESPONSABLE', momento_declarado: '2026-09-29T23:30:00Z', motivo: 'turno', estado: 'APROBADA', registrado_por: 'u2' }),
+    F('c2', 'SALIDA', '2026-09-30T22:59:00Z'), F('d1', 'ENTRADA', '2026-10-01T07:00:00Z'),
+  ];
+  const r = documentoRegistro({ empresa: { nombre: 'GOFIO DESIGN', nif: '78563258L' }, persona: { nombre: 'Juan Alberto González Rodríguez', nif: '78563258L' },
+    periodo: '2026-09-01', tz: 'Atlantic/Canary', fichajes, nombres: { u1: 'Juan Alberto González Rodríguez', u2: 'Ana Pérez' } });
+  assert.equal(r.documento, `REGISTRO DIARIO DE JORNADA
+Empresa: GOFIO DESIGN · NIF 78563258L
+Persona trabajadora: Juan Alberto González Rodríguez · NIF 78563258L
+Periodo: septiembre de 2026 (del 01/09/2026 al 30/09/2026)
+Horas en la hora local de Atlantic/Canary
+
+Día       Entrada Salida      Trabajo Pausas Desplaz.
+mié 23/09 12:25   16:35          3:38   0:30     0:00  (1)(2)
+          Tramos de trabajo: 12:25–14:00, 14:30–16:35
+vie 25/09 08:00   sin cerrar     3:00   0:00     0:40
+          Tramos de trabajo: 08:00–11:00, 15:00–sin cerrar
+mié 30/09 00:30   23:59         23:29   0:00     0:00  (3)
+
+Total: 30:07 de trabajo en 3 días. Pausas: 0:30. Desplazamientos: 0:40 (incluidos en el trabajo).
+
+Cambios hechos a mano en el registro
+(1) mié 23/09 · Se añadió a mano: salida a las 16:35. Lo pidió Juan Alberto González Rodríguez el 24/09/2026 a las 09:00. Motivo: olvidé fichar. Lo aprobó Ana Pérez el 24/09/2026 a las 10:00.
+(2) mié 23/09 · Se anuló: salida a las 17:00. Motivo: error. Lo anuló Ana Pérez el 24/09/2026 a las 10:01.
+(3) mié 30/09 · Se añadió a mano: entrada a las 00:30. Lo registró Ana Pérez el 02/10/2026 a las 11:00. Motivo: turno.
+
+Registro diario de jornada (artículo 34.9 del Estatuto de los Trabajadores). La empresa lo conserva durante cuatro años a disposición de la persona trabajadora, de sus representantes legales y de la Inspección de Trabajo y Seguridad Social.
+`);
+  assert.deepEqual([r.dias, r.minutos, r.abiertos], [3, 1807, 1]);
+});
+
+test('documento del registro sin jornadas y sin desplazamientos', () => {
+  const vacio = documentoRegistro({ empresa: { nombre: 'Taller' }, persona: { nombre: ' ' }, periodo: '2026-02-01', fichajes: [] });
+  assert.match(vacio.documento, /Persona trabajadora: —\nPeriodo: febrero de 2026 \(del 01\/02\/2026 al 28\/02\/2026\)/);
+  assert.match(vacio.documento, /No hay jornadas registradas en este periodo\./);
+  const uno = documentoRegistro({ empresa: { nombre: 'Taller' }, persona: { nombre: 'Ana' }, periodo: '2026-02-01', tz: 'Europe/Madrid',
+    fichajes: [{ id: 1, tipo: 'ENTRADA', momento: '2026-02-02T07:00:00Z', origen: 'APP' }, { id: 2, tipo: 'SALIDA', momento: '2026-02-02T15:00:00Z', origen: 'APP' }] });
+  assert.match(uno.documento, /Día {7}Entrada Salida {6}Trabajo Pausas\nlun 02\/02 08:00   16:00 {10}8:00   0:00\n\nTotal: 8:00 de trabajo en 1 día\. Pausas: 0:00\.\n/);
 });

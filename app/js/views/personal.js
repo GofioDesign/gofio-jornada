@@ -3,7 +3,7 @@
 import { api } from '../api.js';
 import { h, montar, accion, aviso, hora, hoyISO, sumarDias } from '../ui.js';
 import { fmtMin } from '../lib/jornada.js';
-import { TAREAS_PROPUESTAS, totalesPorTarea, cronometro, minutosDe, diaLocal } from '../lib/personal.js';
+import { TAREAS_PROPUESTAS, totalesPorTarea, cronometro, minutosDe, diaLocal, separarTareas } from '../lib/personal.js';
 
 export async function vistaPersonal(app) {
   const raiz = h('section.pila.personal');
@@ -65,16 +65,19 @@ export async function vistaPersonal(app) {
   };
 
   const gestionar = activas => {
-    const nueva = h('input', { placeholder: 'Nueva tarea, p. ej. Planchar', maxLength: 60, 'aria-label': 'Nueva tarea' });
+    const nueva = h('input', { placeholder: 'Nuevas tareas separadas por comas: Planchar, Regar…', 'aria-label': 'Nuevas tareas' });
     const propuestas = TAREAS_PROPUESTAS.filter(n => !tareas.some(t => t.nombre.toLowerCase() === n.toLowerCase()));
-    const crear = async nombre => {
+    const crear = async (nombre, recargar = true) => {
       const previa = tareas.find(t => t.nombre.toLowerCase() === nombre.toLowerCase());
       if (previa) await api.guardarTareaPersonal({ id: previa.id, activa: true });
-      else await api.guardarTareaPersonal({ nombre, orden: tareas.length });
-      await cargar();
+      else tareas.push(await api.guardarTareaPersonal({ nombre, orden: tareas.length }));
+      if (recargar) await cargar();
     };
     return h('details.tarjeta', h('summary', h('strong', 'Mis tareas')),
-      h('form.fila', { onsubmit: e => { e.preventDefault(); const n = nueva.value.trim(); if (n) accion(e.target.querySelector('button'), () => crear(n)); } },
+      h('form.fila', { onsubmit: e => {
+        e.preventDefault(); const nombres = separarTareas(nueva.value);
+        if (nombres.length) accion(e.target.querySelector('button'), async () => { for (const n of nombres) await crear(n, false); await cargar(); });
+      } },
         nueva, h('button.btn', { type: 'submit' }, 'Añadir')),
       propuestas.length ? h('div.fila-botones', h('small.ayuda', 'Ideas: '), propuestas.map(n => h('button.btn.mini', { type: 'button', onclick: e => accion(e.currentTarget, () => crear(n)) }, '+ ' + n))) : null,
       h('ul.lista-simple', activas.map(t => h('li', h('span', t.nombre),
