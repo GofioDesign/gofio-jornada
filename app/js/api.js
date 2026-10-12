@@ -199,6 +199,7 @@ const supa = {
     return ok(await c.from('tiempos_personales').insert({ tarea_id, inicio: ahora }).select().single());
   },
   async pararPersonal() { const c = await cliente(); return ok(await c.from('tiempos_personales').update({ fin: new Date().toISOString() }).is('fin', null)); },
+  async apuntarPersonal(tarea_id, inicio, fin) { const c = await cliente(); return ok(await c.from('tiempos_personales').insert({ tarea_id, inicio, fin }).select().single()); },
   async pasarAMiTiempo(org, proyecto, tarea, quitar) {
     const c = await cliente();
     const r = ok(await c.rpc('pasar_a_mi_tiempo', { p_org: org, p_proyecto: proyecto, p_tarea: tarea, p_quitar_de_jornada: !!quitar }));
@@ -604,6 +605,10 @@ const demo = {
     const fila = { id: uid(), tarea_id, inicio: ahora, fin: null }; d.tiemposPersonales.push(fila); guardar(d); return fila;
   },
   async pararPersonal() { const d = db(); const ahora = new Date().toISOString(); (d.tiemposPersonales || []).forEach(t => { if (!t.fin) t.fin = ahora; }); guardar(d); },
+  async apuntarPersonal(tarea_id, inicio, fin) {
+    const d = db(); d.tiemposPersonales = d.tiemposPersonales || [];
+    const fila = { id: uid(), tarea_id, inicio, fin }; d.tiemposPersonales.push(fila); guardar(d); return fila;
+  },
   async pasarAMiTiempo(org, proyecto, tarea, quitar) {
     const tr = (await demo.tramos(org, '2000-01-01', '2999-12-31', 'demo-user')).filter(t => t.tipo === 'TRABAJO' && t.proyecto_id === proyecto);
     const t0 = await demo.guardarTareaPersonal({ nombre: tarea }).catch(async () => (await demo.tareasPersonales()).find(t => t.nombre.toLowerCase() === tarea.toLowerCase()));

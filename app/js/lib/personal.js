@@ -1,4 +1,5 @@
 // Tiempo personal (cronómetro privado por tareas) y sondeo inicial «¿Cómo piensas usar Jornada?».
+import { momentoLocal } from './jornada.js';
 
 export const USOS = {
   personal: 'Personal',
@@ -28,6 +29,20 @@ export function totalesPorTarea(tiempos, ahora = Date.now()) {
 export function cronometro(inicio, ahora = Date.now()) {
   const s = Math.max(0, Math.floor((ahora - ms(inicio)) / 1000));
   return [Math.floor(s / 3600), Math.floor(s / 60) % 60, s % 60].map(n => String(n).padStart(2, '0')).join(':');
+}
+
+/**
+ * Tiempo apuntado a posteriori (una tarea que no se cronometró): día y horas «HH:MM» en la zona indicada.
+ * Devuelve { inicio, fin } en ISO o lanza un error legible. No puede ser futuro ni pisar otro tiempo ya apuntado.
+ */
+export function tiempoPasado({ dia, desde, hasta }, tiempos = [], tz = 'Atlantic/Canary', ahora = Date.now()) {
+  if (!dia || !desde || !hasta) throw new Error('Indica el día y las horas de inicio y fin');
+  const ini = momentoLocal(dia, desde, tz), fin = momentoLocal(dia, hasta, tz);
+  if (fin <= ini) throw new Error('La hora de fin tiene que ser posterior a la de inicio');
+  if (fin > ahora) throw new Error('No se puede apuntar tiempo en el futuro');
+  const pisa = tiempos.find(t => ini < (t.fin ? ms(t.fin) : ahora) && fin > ms(t.inicio));
+  if (pisa) throw new Error('Se solapa con otro tiempo ya apuntado');
+  return { inicio: new Date(ini).toISOString(), fin: new Date(fin).toISOString() };
 }
 
 // ---- Importar clientes desde CSV (sondeo: «más de 3 clientes»)

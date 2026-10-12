@@ -162,3 +162,26 @@ test('plazo de conservación de una unidad dada de baja', async () => {
   assert.equal(plazoConservacion({ ultimoFichaje: '2026-03-02T09:00:00Z', ultimaFactura: '2026-02-15', hoy: '2026-10-11' }), '2033-01-01');
   assert.equal(plazoConservacion({ ultimoFichaje: '2010-01-01T09:00:00Z', ultimaFactura: '2012-05-01', hoy: '2026-10-11' }), '2026-10-11');
 });
+
+test('asignar el tramo en curso no lo corta: el cronómetro sigue con lo elegido', async () => {
+  const { cambiosParaParte } = await import('../app/js/lib/jornada.js');
+  const ms = s => Date.parse('2026-09-10T' + s + ':00Z');
+  const t = { inicio: '2026-09-10T07:00:00Z', fin: null, cliente_id: null, proyecto_id: null };
+  // entero: un solo cambio al inicio, sin volver a «sin asignar» después
+  assert.deepEqual(cambiosParaParte(t, ms('07:00'), null, { proyecto_id: 'P' }, ms('09:00')),
+    [{ momento: ms('07:00'), cliente_id: null, proyecto_id: 'P' }]);
+  // desde una hora: también sigue en marcha
+  assert.equal(cambiosParaParte(t, ms('08:00'), null, { cliente_id: 'B' }, ms('09:00')).length, 1);
+  // con hora de fin, esa parte vuelve a lo de antes
+  assert.equal(cambiosParaParte(t, ms('07:00'), ms('08:00'), { cliente_id: 'B' }, ms('09:00')).length, 2);
+});
+
+test('el estado actual muestra la asignación aprobada del tramo en curso', () => {
+  const st = estadoActual([
+    { tipo: 'ENTRADA', momento: h('08:00'), origen: 'APP' },
+    { tipo: 'CAMBIO_CLIENTE', momento: h('09:00'), momento_declarado: h('08:00'), origen: 'RESPONSABLE', estado: 'APROBADA', proyecto_id: 'P', cliente_id: 'A' },
+    { tipo: 'CAMBIO_CLIENTE', momento: h('09:30'), momento_declarado: h('08:00'), origen: 'CORRECCION', estado: 'PENDIENTE', proyecto_id: 'Q' },
+  ]);
+  assert.equal(st.estado, 'TRABAJANDO');
+  assert.equal(st.proyecto_id, 'P');
+});
