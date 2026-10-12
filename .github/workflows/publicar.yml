@@ -14,6 +14,9 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - run: npm test
+      # Cada publicación pide su propia hoja de estilos y su main.js (?v=commit): así nunca se mezcla
+      # el JS nuevo con el CSS de la versión anterior que aún guarde la caché del navegador o del CDN.
+      - run: sed -i "s/?v=dev/?v=${GITHUB_SHA::8}/g" app/index.html
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with: { path: app }
