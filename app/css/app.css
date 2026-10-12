@@ -10,6 +10,12 @@
   :root { --fondo: #121513; --superficie: #1b201d; --texto: #e8ece9; --suave: #9aa59e; --borde: #2c332f;
           --marca: #8fc3a5; --marca-2: #a6d3b8; --acento: #e0b05c; --ok: #6fcf97; --pausa: #e8b04f; --peligro: #f28b82; color-scheme: dark; }
 }
+/* Color del espacio activo (Personal naranja de serie, o el que se elija en Ajustes) */
+body[data-color] { --marca: var(--color-espacio); --marca-2: color-mix(in srgb, var(--color-espacio) 85%, black); }
+@media (prefers-color-scheme: dark) {
+  body[data-color] { --marca: color-mix(in srgb, var(--color-espacio) 55%, white); --marca-2: color-mix(in srgb, var(--color-espacio) 45%, white); }
+  body[data-color] .barra { background: color-mix(in srgb, var(--color-espacio) 45%, #121513); }
+}
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body { margin: 0; background: var(--fondo); color: var(--texto); font-size: 16px; line-height: 1.45; }
@@ -379,3 +385,7 @@ ol.pasos input[type=file] { display: block; margin-top: .3rem; }
 @media (max-width: 480px) { .horario-dia { grid-template-columns: 1fr auto; } .horario-tramos { grid-column: 1 / -1; grid-row: 2; } .horario-dia > .btn { margin-top: 0; } .horario-dia > strong { margin-top: 0; } }
 .firma-a-mano { margin-top: .75rem; }
 .firma-a-mano summary { cursor: pointer; color: var(--suave); }
+
+/* Ajustes › Colores de los espacios */
+.fila-color { display: flex; align-items: center; gap: 12px; }
+.fila-color input[type=color] { width: 56px; min-height: 40px; padding: 2px; cursor: pointer; }
