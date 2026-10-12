@@ -5,6 +5,7 @@ import { tarjetaFirma } from './firma.js';
 import { descargar } from '../lib/csv.js';
 import { plantillasObs } from '../lib/factura.js';
 import { USOS, usaPersonal } from '../lib/personal.js';
+import { ESPACIOS, colorEspacio } from '../lib/espacios.js';
 import { limiteUsuarios, copiaActiva, cuotaMensual, caducado } from '../lib/plan.js';
 import { DIAS, previstoPeriodo, errorHorario } from '../lib/horario.js';
 import { fmtMin } from '../lib/jornada.js';
@@ -13,7 +14,7 @@ export async function vistaAjustes(app, seccion) {
   const e = app.e;
   const gestiona = puedeGestionar(app.rol);
   const profesional = app.uso !== 'personal';
-  const bloques = [cuenta(app), usoJornada(app), profesional && tarjetaFirma(app), etiquetasNfc()].filter(Boolean);
+  const bloques = [cuenta(app), usoJornada(app), coloresEspacios(app), profesional && tarjetaFirma(app), etiquetasNfc()].filter(Boolean);
   if (profesional && puedeVerEquipo(app.rol)) bloques.push(await puntosQr(app));
   if (gestiona) {
     const [miembros, invitaciones, exportaciones] = await Promise.all([api.miembros(app.org), api.invitaciones(app.org), api.exportaciones(app.org).catch(() => [])]);
@@ -64,6 +65,20 @@ function usoJornada(app) {
       indeciso: 'Como profesional, de momento. Cámbialo cuando lo tengas claro.',
     }[uso]),
     usaPersonal(uso) ? null : h('label.check', miTiempo, ' Añadir el espacio Personal con «Mi tiempo» (tareas personales, solo las ves tú)'));
+}
+
+// Color principal de cada espacio. Se guarda en este dispositivo y solo lo ves tú.
+function coloresEspacios(app) {
+  const repintar = () => window.dispatchEvent(new HashChangeEvent('hashchange'));
+  return h('div.tarjeta', { id: 'colores' },
+    h('h2', 'Colores de los espacios'),
+    h('p.ayuda', 'El color principal de la cabecera y los botones en cada espacio. Se guarda en este dispositivo.'),
+    app.espacios.map(id => h('div.fila',
+      h('label', { for: 'color-' + id }, ESPACIOS[id].nombre),
+      h('span.fila-color',
+        h('input', { type: 'color', id: 'color-' + id, value: colorEspacio(id, preferencia('color-' + id)),
+          onchange: ev => { preferencia('color-' + id, ev.target.value); repintar(); } }),
+        h('button.btn.enlace', { type: 'button', onclick: () => { preferencia('color-' + id, ''); repintar(); } }, 'De serie')))));
 }
 
 // Etiquetas NFC: una pegatina con esta dirección abre la app y pregunta qué fichar (p. ej. «¿Has terminado?» al dejar el móvil en el soporte del coche).

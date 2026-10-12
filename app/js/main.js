@@ -11,7 +11,7 @@ import { vistaFacturacion } from './views/facturacion.js';
 import { vistaAdmin } from './views/admin.js';
 import { vistaPersonal } from './views/personal.js';
 import { usaPersonal } from './lib/personal.js';
-import { ESPACIOS, espaciosDisponibles, espacioActivo, menuDe } from './lib/espacios.js';
+import { ESPACIOS, espaciosDisponibles, espacioActivo, menuDe, colorEspacio } from './lib/espacios.js';
 
 const $vista = document.getElementById('vista');
 const $menu = document.getElementById('menu');
@@ -68,6 +68,7 @@ function pintarMenu(ruta, modoSA = false) {
   const espacio = modoSA ? null : espacioActivo(app.espacios, ruta, preferencia('espacio'));
   if (espacio) preferencia('espacio', espacio);
   document.querySelector('.marca')?.setAttribute('href', ESPACIOS[espacio]?.inicio || '#/');
+  pintarColor(modoSA ? null : espacio);
   const items = modoSA ? [
     ['#/sa', 'Licencias', 'equipo'],
     app.e && ['#/', 'Volver a mi empresa', 'reloj'],
@@ -77,6 +78,15 @@ function pintarMenu(ruta, modoSA = false) {
     h('span.icono.' + ic, { 'aria-hidden': 'true' }), h('span', txt))));
   $menu.querySelector('.activo')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });   // en el móvil el menú se desliza de lado
   pintarEspacios(modoSA ? [] : app.espacios, espacio);
+}
+
+// Color principal del espacio (Ajustes › Colores de los espacios). Con el verde de serie se deja el tema tal cual.
+function pintarColor(espacio) {
+  const color = colorEspacio(espacio, espacio && preferencia('color-' + espacio));
+  const propio = color !== ESPACIOS.pro.color;
+  document.body.toggleAttribute('data-color', propio);
+  if (propio) document.body.style.setProperty('--color-espacio', color); else document.body.style.removeProperty('--color-espacio');
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', color);
 }
 
 // Botones de abajo: cambian de espacio y, con él, las secciones de la cabecera. Solo salen si hay más de uno.

@@ -3,9 +3,14 @@
 import { usaPersonal, usaProfesional } from './personal.js';
 
 export const ESPACIOS = {
-  personal: { nombre: 'Personal', icono: 'crono', inicio: '#/personal' },
-  pro: { nombre: 'Pro', icono: 'maletin', inicio: '#/' },
+  personal: { nombre: 'Personal', icono: 'crono', inicio: '#/personal', color: '#b5541c' },   // naranja
+  pro: { nombre: 'Pro', icono: 'maletin', inicio: '#/', color: '#1f3a2e' },                   // el verde de siempre
 };
+
+/** Color principal de un espacio: el que eligió la persona en Ajustes (#rrggbb) o el de serie. */
+export function colorEspacio(espacio, elegido) {
+  return /^#[0-9a-f]{6}$/i.test(elegido || '') ? elegido.toLowerCase() : ESPACIOS[espacio]?.color || ESPACIOS.pro.color;
+}
 
 /** Espacios que ve esta persona según el sondeo («Cómo usas Jornada») y si añadió «Mi tiempo» por su cuenta. */
 export function espaciosDisponibles(uso, miTiempo = false) {

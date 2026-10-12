@@ -32,3 +32,11 @@ test('menú de la cabecera de cada espacio', () => {
   assert.deepEqual(hrefs('pro', { uso: 'ambos' }), ['#/', '#/clientes', '#/proyectos', '#/ajustes']);
   assert.deepEqual(hrefs('pro', { verEquipo: true, facturacion: true }), ['#/', '#/clientes', '#/proyectos', '#/equipo', '#/tiempos', '#/facturacion', '#/ajustes']);
 });
+
+test('color de cada espacio: el elegido o el de serie', async () => {
+  const { colorEspacio, ESPACIOS } = await import('../app/js/lib/espacios.js');
+  assert.equal(colorEspacio('personal'), ESPACIOS.personal.color);
+  assert.equal(colorEspacio('pro', ''), '#1f3a2e');
+  assert.equal(colorEspacio('personal', '#3366CC'), '#3366cc');
+  assert.equal(colorEspacio('personal', 'red'), ESPACIOS.personal.color);
+});
