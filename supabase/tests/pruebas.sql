@@ -214,6 +214,25 @@ do $$ begin
   end if;
 end $$;
 
+-- cliente por nómina (0035): sus horas no quedan pendientes y la nómina solo la ve quien la apunta
+do $$ declare x uuid := (select id from clientes where codigo = 'X2241917S'); begin
+  if (select count(*) from public.horas_pendientes((select org from ctx), x, '2000-01-01', '2100-01-01')) = 0 then
+    raise exception 'prueba nómina: el cliente X debería tener horas'; end if;
+  update clientes set por_nomina = true where id = x;
+  if (select count(*) from public.horas_pendientes((select org from ctx), x, '2000-01-01', '2100-01-01')) <> 0 then
+    raise exception 'un cliente por nómina no debe tener horas pendientes'; end if;
+  insert into nominas (org_id, cliente_id, mes, bruto, neto) values ((select org from ctx), x, '2026-09-01', 1500, 1200);
+  begin
+    insert into nominas (org_id, cliente_id, mes, bruto) values ((select org from ctx), x, '2026-09-15', 1);
+    raise exception 'DEBÍA FALLAR mes que no empieza en día 1';
+  exception when check_violation then null; end;
+  perform set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
+  if (select count(*) from nominas) <> 0 then raise exception 'otra persona ve la nómina'; end if;
+  perform set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+  if (select count(*) from nominas) <> 1 then raise exception 'no ves tu nómina'; end if;
+  update clientes set por_nomina = false where id = x;
+end $$;
+
 -- horas pendientes del cliente B y factura con ellas
 do $$ declare h jsonb; f facturas; begin
   select jsonb_agg(jsonb_build_object('user_id', user_id, 'dia', dia, 'tipo', tipo, 'minutos', minutos, 'km', km)) into h

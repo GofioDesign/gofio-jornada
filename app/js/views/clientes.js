@@ -1,9 +1,10 @@
 import { api } from '../api.js';
-import { h, montar, accion, aviso, dialogo, posicion, hoyISO, sumarDias, preferencia } from '../ui.js';
+import { h, montar, accion, aviso, dialogo, posicion, hoyISO, sumarDias, preferencia, eur } from '../ui.js';
 import { direccionCompleta, wazeUrl, mapsUrl, tieneDestino } from '../lib/mapas.js';
 import { fmtMin } from '../lib/jornada.js';
 import { parseCSV, toCSV, descargar } from '../lib/csv.js';
 import { clientesDesdeCSV, CABECERAS_CLIENTES } from '../lib/personal.js';
+import { preciosHora } from '../lib/nomina.js';
 
 export const TIPOS_CLIENTE = { PARTICULAR: 'Particular', AUTONOMO: 'Profesional / autónomo', EMPRESA: 'Empresa', ADMINISTRACION: 'Administración pública' };
 
@@ -28,7 +29,7 @@ export async function vistaClientes(app) {
     contador.textContent = `${r.length} de ${clientes.length}`;
     lista.replaceChildren(...(r.length ? r.map(c => h('div.item', { role: 'link', tabIndex: 0,
         onclick: () => { location.hash = '#/clientes/' + c.id; }, onkeydown: e => { if (e.key === 'Enter') location.hash = '#/clientes/' + c.id; } },
-      h('div', h('strong', c.nombre), h('span.etiqueta', c.tipo === 'PARTICULAR' || !c.tipo ? 'particular' : 'profesional'), c.activo === false ? h('span.etiqueta', 'inactivo') : null, h('small', direccionCompleta(c) || 'Sin dirección')),
+      h('div', h('strong', c.nombre), h('span.etiqueta', c.tipo === 'PARTICULAR' || !c.tipo ? 'particular' : 'profesional'), c.por_nomina ? h('span.etiqueta', 'por nómina') : null, c.activo === false ? h('span.etiqueta', 'inactivo') : null, h('small', direccionCompleta(c) || 'Sin dirección')),
       tieneDestino(c) ? h('span.acciones-rapidas',
         h('a.mini', { href: wazeUrl(c), target: '_blank', rel: 'noopener', onclick: e => e.stopPropagation(), title: 'Waze' }, 'Waze'),
         h('a.mini', { href: mapsUrl(c), target: '_blank', rel: 'noopener', onclick: e => e.stopPropagation(), title: 'Google Maps' }, 'Maps')) : null))
@@ -79,7 +80,8 @@ export async function vistaCliente(app, id) {
         h('div', h('small', 'Trabajo'), h('strong', fmtMin(min('TRABAJO')))),
         h('div', h('small', 'Desplazamientos'), h('strong', fmtMin(min('DESPLAZAMIENTO')))),
         h('div', h('small', 'Km (línea recta)'), h('strong', tr.reduce((s, t) => s + (Number(t.km) || 0), 0).toLocaleString('es-ES', { maximumFractionDigits: 1 })))),
-      app.facturacion ? h('a.btn', { href: '#/facturacion/' + c.id }, 'Facturar horas pendientes') : null),
+      app.facturacion && !c.por_nomina ? h('a.btn', { href: '#/facturacion/' + c.id }, 'Facturar horas pendientes') : null),
+    c.por_nomina ? await tarjetaNominas(app, c) : null,
     suyos.length ? h('div.tarjeta',
       h('h2', 'Proyectos'),
       h('div.lista', suyos.map(p => h('a.item', { href: '#/proyectos/' + p.id },
@@ -88,8 +90,63 @@ export async function vistaCliente(app, id) {
       h('h2', 'Datos'),
       h('dl.datos',
         [['NIF', c.codigo], ['Tipo', TIPOS_CLIENTE[c.tipo] || c.tipo], ['Retención IRPF', c.aplica_irpf ? (c.irpf_pct != null ? `${c.irpf_pct} %` : 'Sí (la de la empresa)') : null], ['Teléfono', c.telefono], ['Email', c.email], ['Idioma', c.idioma], ['Notas', c.notas]]
+          .concat([['Cobro', c.por_nomina ? 'Por nómina (no se factura)' : null]])
           .map(([k, v]) => v ? [h('dt', k), h('dd', v)] : null)),
       puedeEditar(app.rol) ? h('button.btn', { onclick: () => editar(app, c) }, 'Editar') : null));
+}
+
+/** Nóminas de quien mira (cada persona solo ve las suyas) con el precio hora de cada mes. */
+async function tarjetaNominas(app, c) {
+  const hoy = hoyISO(app.tz), yo = app.e.user_id;
+  const desde = sumarDias(hoy.slice(0, 8) + '01', -365).slice(0, 8) + '01';
+  const [nominas, tramos] = await Promise.all([api.nominas(app.org).catch(() => []), api.tramos(app.org, desde, hoy, yo).catch(() => [])]);
+  const filas = preciosHora(nominas.filter(n => n.user_id === yo), tramos, c.id, yo);
+  const mesTxt = mes => new Date(mes.slice(0, 7) + '-15T12:00:00').toLocaleDateString('es-ES', { month: 'short', year: 'numeric' });
+  const porHora = v => v == null ? '—' : eur(v) + '/h';
+  return h('div.tarjeta',
+    h('h2', 'Nóminas'),
+    h('p.ayuda', 'Apunta lo que cobras cada mes y verás tu precio hora real con las horas que fichaste para este cliente. Solo lo ves tú.'),
+    filas.length ? h('table.tabla',
+      h('thead', h('tr', h('th', 'Mes'), h('th.num', 'Horas'), h('th.num', 'Nómina'), h('th.num', 'Precio hora'))),
+      h('tbody', filas.map(n => h('tr', { role: 'button', tabIndex: 0, title: 'Editar', style: 'cursor:pointer',
+          onclick: () => editarNomina(app, c, n), onkeydown: e => { if (e.key === 'Enter') editarNomina(app, c, n); } },
+        h('td', mesTxt(n.mes)), h('td.num', fmtMin(n.minutos)),
+        h('td.num', n.bruto != null ? h('div', eur(n.bruto), h('small', ' bruto')) : null, n.neto != null ? h('div', eur(n.neto), h('small', ' neto')) : null),
+        h('td.num', n.bruto != null ? h('div', h('strong', porHora(n.bruto_hora)), h('small', ' bruto')) : null,
+          n.neto != null ? h('div', h('strong', porHora(n.neto_hora)), h('small', ' neto')) : null))))) : h('p.vacio', 'Aún no has apuntado ninguna nómina.'),
+    filas.length ? h('p.ayuda', 'Toca un mes para cambiarlo o borrarlo. Sin horas fichadas ese mes no se puede calcular el precio hora.') : null,
+    h('button.btn', { onclick: () => editarNomina(app, c, { mes: hoy.slice(0, 8) + '01' }) }, '+ Apuntar nómina'));
+}
+
+async function editarNomina(app, c, n) {
+  const mes = h('input', { id: 'n-mes', type: 'month', required: true, value: (n.mes || '').slice(0, 7) });
+  const importe = (id, v) => h('input', { id, type: 'number', min: 0, step: '0.01', inputMode: 'decimal', value: v ?? '' });
+  const bruto = importe('n-bruto', n.bruto), neto = importe('n-neto', n.neto);
+  const form = h('form.formulario',
+    h('label', { for: 'n-mes' }, 'Mes *'), mes,
+    h('div.dos', h('div', h('label', { for: 'n-bruto' }, 'Bruto (€)'), bruto), h('div', h('label', { for: 'n-neto' }, 'Neto (€)'), neto)),
+    h('p.ayuda', 'Con uno de los dos basta. Si ese mes ya tenía nómina, se sustituye.'));
+  const recargar = () => window.dispatchEvent(new HashChangeEvent('hashchange'));
+  const botones = [{ texto: 'Cancelar', valor: false }];
+  if (n.id) botones.push({ texto: 'Eliminar', valor: async () => {
+    if (!confirm('¿Eliminar esta nómina?')) return undefined;
+    if (!await accion(null, async () => { await api.borrarNomina(n.id); return true; })) return undefined;
+    aviso('Nómina eliminada', 'ok'); recargar(); return true;
+  } });
+  botones.push({ texto: 'Guardar', clase: 'primario', valor: async () => {
+    if (!form.reportValidity()) return undefined;
+    const num = i => i.value === '' ? null : Number(i.value);
+    if (num(bruto) == null && num(neto) == null) { aviso('Pon el bruto, el neto o los dos', 'error'); return undefined; }
+    const datos = { cliente_id: c.id, user_id: app.e.user_id, mes: mes.value + '-01', bruto: num(bruto), neto: num(neto) };
+    const hecho = await accion(null, async () => {
+      await api.guardarNomina(app.org, datos);
+      if (n.id && n.mes !== datos.mes) await api.borrarNomina(n.id);   // se cambió de mes: no dejar la anterior
+      return true;
+    });
+    if (!hecho) return undefined;
+    aviso('Nómina guardada', 'ok'); recargar(); return true;
+  } });
+  return dialogo(n.id ? 'Editar nómina' : 'Apuntar nómina', form, botones);
 }
 
 /** Alta o edición de un cliente. Devuelve el cliente guardado, o null si se cancela. */
@@ -121,6 +178,7 @@ export async function editar(app, c, { recargar = true } = {}) {
     campo('telefono', 'Teléfono', { type: 'tel' }),
     campo('email', 'Email', { type: 'email' }),
     h('label', { for: 'f-notas' }, 'Notas'), h('textarea', { id: 'f-notas', rows: 2, value: c.notas || '' }),
+    h('label.check', h('input', { type: 'checkbox', id: 'f-por_nomina', checked: !!c.por_nomina }), ' Me paga por nómina: sus horas no se facturan'),
     h('label.check', h('input', { type: 'checkbox', id: 'f-activo', checked: c.activo !== false }), ' Activo'));
   return dialogo(c.id ? 'Editar cliente' : 'Nuevo cliente', form, [
     { texto: 'Cancelar', valor: false },
@@ -130,7 +188,8 @@ export async function editar(app, c, { recargar = true } = {}) {
         const v = k => form.querySelector('#f-' + k).value.trim() || null;
         const datos = { id: c.id, nombre: v('nombre'), codigo: v('codigo').toUpperCase(), direccion: v('direccion'), cp: v('cp'), localidad: v('localidad'),
           municipio: v('municipio'), provincia: v('provincia'), telefono: v('telefono'), email: v('email'), notas: v('notas'),
-          tipo: tipo.value, aplica_irpf: aplicaIrpf.checked, irpf_pct: aplicaIrpf.checked && irpfPct.value !== '' ? Number(irpfPct.value) : null, activo: form.querySelector('#f-activo').checked };
+          tipo: tipo.value, aplica_irpf: aplicaIrpf.checked, irpf_pct: aplicaIrpf.checked && irpfPct.value !== '' ? Number(irpfPct.value) : null, activo: form.querySelector('#f-activo').checked,
+          por_nomina: form.querySelector('#f-por_nomina').checked };
         const guardado = await accion(null, () => api.guardarCliente(app.org, datos));
         if (!guardado) return undefined;
         aviso('Cliente guardado', 'ok');

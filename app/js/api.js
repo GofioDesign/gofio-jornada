@@ -153,6 +153,13 @@ const supa = {
     const c = await cliente(); const { id, ...datos } = x; datos.org_id = org;
     return ok(id ? await c.from('clientes').update(datos).eq('id', id).select().single() : await c.from('clientes').insert(datos).select().single());
   },
+  // ---- nóminas (cliente que paga por nómina): cada persona solo ve las suyas
+  async nominas(org) { const c = await cliente(); return ok(await c.from('nominas').select('*').eq('org_id', org).order('mes', { ascending: false })); },
+  async guardarNomina(org, x) {
+    const c = await cliente();
+    return ok(await c.from('nominas').upsert({ ...x, org_id: org }, { onConflict: 'org_id,cliente_id,user_id,mes' }).select().single());
+  },
+  async borrarNomina(id) { const c = await cliente(); return ok(await c.from('nominas').delete().eq('id', id)); },
   // ---- proyectos
   async proyectos(org) { const c = await cliente(); return ok(await c.from('proyectos').select('*').eq('org_id', org).order('nombre')); },
   async guardarProyecto(org, x) {
@@ -575,6 +582,14 @@ const demo = {
     guardar(d);
     return { ...fila };
   },
+  async nominas(org) { return (db().nominas || []).filter(n => n.org_id === org); },
+  async guardarNomina(org, x) {
+    const d = db(); d.nominas = d.nominas || [];
+    let n = d.nominas.find(y => y.org_id === org && y.cliente_id === x.cliente_id && y.user_id === x.user_id && y.mes === x.mes);
+    if (n) Object.assign(n, x); else { n = { ...x, id: uid(), org_id: org }; d.nominas.push(n); }
+    guardar(d); return { ...n };
+  },
+  async borrarNomina(id) { const d = db(); d.nominas = (d.nominas || []).filter(n => n.id !== id); guardar(d); },
   async proyectos(org) { return db().proyectos.filter(p => p.org_id === org).sort((a, b) => a.nombre.localeCompare(b.nombre)); },
   async guardarProyecto(org, x) {
     const d = db(); let fila;
@@ -657,7 +672,8 @@ const demo = {
   async exportaciones(org) { return db().exportaciones.filter(e => e.org_id === org); },
 
   async horasPendientes(org, cli, desde, hasta) {
-    const d = db(); const tr = (await demo.tramos(org, desde, hasta)).filter(t => t.cliente_id === cli && t.fin && t.tipo !== 'PAUSA');
+    const d = db(); if (d.clientes.find(c => c.id === cli)?.por_nomina) return [];
+    const tr = (await demo.tramos(org, desde, hasta)).filter(t => t.cliente_id === cli && t.fin && t.tipo !== 'PAUSA');
     const g = {};
     tr.forEach(t => { const k = [t.user_id, t.dia, t.tipo].join('|'); g[k] = g[k] || { user_id: t.user_id, nombre: d.miembros.find(m => m.user_id === t.user_id)?.nombre, dia: t.dia, tipo: t.tipo, minutos: 0, km: 0, tramos: 0 }; g[k].minutos += t.minutos; g[k].km += t.km || 0; g[k].tramos++; });
     return Object.values(g).filter(h => !d.facturadas.includes([cli, h.user_id, h.dia, h.tipo].join('|')));
