@@ -55,3 +55,25 @@ export function menuDe(espacio, { uso, verEquipo = false, facturacion = false } 
     ['#/ajustes', 'Ajustes', 'ajustes'],
   ].filter(Boolean);
 }
+
+// ---- Contraste: el texto sobre el color del espacio va en negro o en blanco, el que se lea mejor (WCAG 2.1)
+const canales = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
+const lineal = c => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+export const luminancia = hex => { const [r, g, b] = canales(hex).map(lineal); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+export const contraste = (a, b) => { const [x, y] = [luminancia(a), luminancia(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
+
+/** '#000000' si el negro contrasta más que el blanco sobre ese fondo; si no, '#ffffff'. */
+export const textoSobre = fondo => contraste(fondo, '#000000') > contraste(fondo, '#ffffff') ? '#000000' : '#ffffff';
+
+/** Mezcla dos colores como color-mix(in srgb, a p, b) del CSS. */
+export function mezcla(a, b, p) {
+  const [x, y] = [canales(a), canales(b)];
+  return '#' + x.map((c, i) => Math.round(c * p + y[i] * (1 - p)).toString(16).padStart(2, '0')).join('');
+}
+
+/** Colores de texto sobre la cabecera y sobre los botones principales, en tema claro u oscuro (las mismas mezclas que el CSS). */
+export function textosEspacio(color, oscuro = false) {
+  return oscuro
+    ? { barra: textoSobre(mezcla(color, '#121513', 0.45)), boton: textoSobre(mezcla(color, '#ffffff', 0.55)) }
+    : { barra: textoSobre(color), boton: textoSobre(color) };
+}
