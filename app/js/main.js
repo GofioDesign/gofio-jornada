@@ -11,7 +11,7 @@ import { vistaFacturacion } from './views/facturacion.js';
 import { vistaAdmin } from './views/admin.js';
 import { vistaPersonal } from './views/personal.js';
 import { usaPersonal } from './lib/personal.js';
-import { ESPACIOS, espaciosDisponibles, espacioActivo, menuDe, colorEspacio } from './lib/espacios.js';
+import { ESPACIOS, espaciosDisponibles, espacioActivo, menuDe, colorEspacio, textosEspacio } from './lib/espacios.js';
 
 const $vista = document.getElementById('vista');
 const $menu = document.getElementById('menu');
@@ -85,7 +85,14 @@ function pintarColor(espacio) {
   const color = colorEspacio(espacio, espacio && preferencia('color-' + espacio));
   const propio = color !== ESPACIOS.pro.color;
   document.body.toggleAttribute('data-color', propio);
-  if (propio) document.body.style.setProperty('--color-espacio', color); else document.body.style.removeProperty('--color-espacio');
+  const estilo = document.body.style;
+  if (propio) {
+    // Texto en negro o blanco según contraste con el color elegido (también en modo oscuro, con sus mezclas)
+    const textos = textosEspacio(color, matchMedia('(prefers-color-scheme: dark)').matches);
+    estilo.setProperty('--color-espacio', color);
+    estilo.setProperty('--sobre-barra', textos.barra);
+    estilo.setProperty('--sobre-marca', textos.boton);
+  } else ['--color-espacio', '--sobre-barra', '--sobre-marca'].forEach(v => estilo.removeProperty(v));
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', color);
 }
 
@@ -148,6 +155,7 @@ async function router() {
 }
 
 window.addEventListener('hashchange', router);
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => pintarColor(preferencia('espacio')));
 api.alCambiarSesion(async s => { if (s) { app.empresas = []; } router(); });
 router();
 

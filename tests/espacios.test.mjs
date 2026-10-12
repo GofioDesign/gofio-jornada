@@ -40,3 +40,15 @@ test('color de cada espacio: el elegido o el de serie', async () => {
   assert.equal(colorEspacio('personal', '#3366CC'), '#3366cc');
   assert.equal(colorEspacio('personal', 'red'), ESPACIOS.personal.color);
 });
+
+test('texto en negro o blanco según contraste con el color del espacio', async () => {
+  const { textoSobre, contraste, textosEspacio, mezcla } = await import('../app/js/lib/espacios.js');
+  assert.equal(textoSobre('#1f3a2e'), '#ffffff');   // verde Pro
+  assert.equal(textoSobre('#b5541c'), '#ffffff');   // naranja Personal
+  assert.equal(textoSobre('#f2c94c'), '#000000');   // amarillo
+  assert.equal(textoSobre('#ffffff'), '#000000');
+  assert.ok(Math.abs(contraste('#000000', '#ffffff') - 21) < 0.01);
+  assert.equal(mezcla('#ffffff', '#000000', 0.5), '#808080');
+  assert.deepEqual(textosEspacio('#f2c94c'), { barra: '#000000', boton: '#000000' });
+  assert.equal(textosEspacio('#f2c94c', true).boton, '#000000');
+});

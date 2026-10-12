@@ -16,6 +16,12 @@ body[data-color] { --marca: var(--color-espacio); --marca-2: color-mix(in srgb, 
   body[data-color] { --marca: color-mix(in srgb, var(--color-espacio) 55%, white); --marca-2: color-mix(in srgb, var(--color-espacio) 45%, white); }
   body[data-color] .barra { background: color-mix(in srgb, var(--color-espacio) 45%, #121513); }
 }
+/* …y el texto encima, en negro o blanco según contraste (lo calcula main.js: --sobre-barra y --sobre-marca) */
+body[data-color] .barra, body[data-color] .marca, body[data-color] .selector-empresa, body[data-color] .menu a.activo { color: var(--sobre-barra); }
+body[data-color] .menu a { color: color-mix(in srgb, var(--sobre-barra) 75%, transparent); }
+body[data-color] .menu a.activo { background: color-mix(in srgb, var(--sobre-barra) 12%, transparent); }
+body[data-color] .selector-empresa { border-color: color-mix(in srgb, var(--sobre-barra) 35%, transparent); }
+body[data-color] .btn.primario, body[data-color] .espacios button.activo, body[data-color] .opciones .btn[aria-pressed="true"] { color: var(--sobre-marca); }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body { margin: 0; background: var(--fondo); color: var(--texto); font-size: 16px; line-height: 1.45; }
