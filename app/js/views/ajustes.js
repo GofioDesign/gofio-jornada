@@ -44,7 +44,7 @@ function cuenta(app) {
     h('button.btn', { onclick: async () => { await api.salir(); location.hash = '#/'; location.reload(); } }, 'Cerrar sesión'));
 }
 
-// Cómo se usa Jornada (lo que se eligió en el sondeo inicial). El uso es de la empresa; «Mi tiempo» se puede añadir al menú de cada persona.
+// Cómo se usa Jornada (lo que se eligió en el sondeo inicial). El uso es de la empresa y decide qué espacios hay; cada persona puede añadir el Personal.
 function usoJornada(app) {
   const uso = app.uso || 'indeciso';
   const sel = h('select', { id: 'uso-jornada', disabled: !puedeGestionar(app.rol), onchange: ev => accion(null, async () => {
@@ -58,12 +58,12 @@ function usoJornada(app) {
     h('h2', 'Cómo usas Jornada'),
     h('label', { for: 'uso-jornada' }, 'Uso'), sel,
     h('p.ayuda', {
-      personal: 'Personal: el menú muestra «Mi tiempo» para medir tus tareas y la Jornada; se ocultan clientes, equipo y facturación.',
-      profesional: 'Profesional: fichaje, clientes, proyectos y equipo.',
-      ambos: 'Ambos: lo profesional y, además, «Mi tiempo» para tus tareas personales.',
+      personal: 'Personal: solo el espacio Personal, con «Mi tiempo» para medir tus tareas y la Jornada; se ocultan clientes, equipo y facturación.',
+      profesional: 'Profesional: solo el espacio Pro, con fichaje, clientes, proyectos y equipo.',
+      ambos: 'Ambos: abajo tienes dos botones para cambiar de espacio, Personal («Mi tiempo») o Pro (fichaje, clientes, proyectos y equipo).',
       indeciso: 'Como profesional, de momento. Cámbialo cuando lo tengas claro.',
     }[uso]),
-    usaPersonal(uso) ? null : h('label.check', miTiempo, ' Mostrar «Mi tiempo» en mi menú (tareas personales, solo las ves tú)'));
+    usaPersonal(uso) ? null : h('label.check', miTiempo, ' Añadir el espacio Personal con «Mi tiempo» (tareas personales, solo las ves tú)'));
 }
 
 // Etiquetas NFC: una pegatina con esta dirección abre la app y pregunta qué fichar (p. ej. «¿Has terminado?» al dejar el móvil en el soporte del coche).
