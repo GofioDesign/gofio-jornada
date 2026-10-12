@@ -8,6 +8,11 @@ import { preciosHora } from '../lib/nomina.js';
 
 export const TIPOS_CLIENTE = { PARTICULAR: 'Particular', AUTONOMO: 'Profesional / autónomo', EMPRESA: 'Empresa', ADMINISTRACION: 'Administración pública' };
 
+// «Me paga por nómina» se elige como un tipo más; en la base es una empresa con por_nomina = true.
+const NOMINA = 'NOMINA';
+const OPCIONES_TIPO = { ...TIPOS_CLIENTE, [NOMINA]: 'Me paga por nómina (no se factura)' };
+const tipoDe = c => c.por_nomina ? NOMINA : (c.tipo || 'PARTICULAR');
+
 const puedeEditar = rol => ['propietario', 'admin', 'responsable'].includes(rol);
 
 export async function vistaClientes(app) {
@@ -29,7 +34,7 @@ export async function vistaClientes(app) {
     contador.textContent = `${r.length} de ${clientes.length}`;
     lista.replaceChildren(...(r.length ? r.map(c => h('div.item', { role: 'link', tabIndex: 0,
         onclick: () => { location.hash = '#/clientes/' + c.id; }, onkeydown: e => { if (e.key === 'Enter') location.hash = '#/clientes/' + c.id; } },
-      h('div', h('strong', c.nombre), h('span.etiqueta', c.tipo === 'PARTICULAR' || !c.tipo ? 'particular' : 'profesional'), c.por_nomina ? h('span.etiqueta', 'por nómina') : null, c.activo === false ? h('span.etiqueta', 'inactivo') : null, h('small', direccionCompleta(c) || 'Sin dirección')),
+      h('div', h('strong', c.nombre), h('span.etiqueta', c.por_nomina ? 'por nómina' : c.tipo === 'PARTICULAR' || !c.tipo ? 'particular' : 'profesional'), c.activo === false ? h('span.etiqueta', 'inactivo') : null, h('small', direccionCompleta(c) || 'Sin dirección')),
       tieneDestino(c) ? h('span.acciones-rapidas',
         h('a.mini', { href: wazeUrl(c), target: '_blank', rel: 'noopener', onclick: e => e.stopPropagation(), title: 'Waze' }, 'Waze'),
         h('a.mini', { href: mapsUrl(c), target: '_blank', rel: 'noopener', onclick: e => e.stopPropagation(), title: 'Google Maps' }, 'Maps')) : null))
@@ -89,8 +94,7 @@ export async function vistaCliente(app, id) {
     h('div.tarjeta',
       h('h2', 'Datos'),
       h('dl.datos',
-        [['NIF', c.codigo], ['Tipo', TIPOS_CLIENTE[c.tipo] || c.tipo], ['Retención IRPF', c.aplica_irpf ? (c.irpf_pct != null ? `${c.irpf_pct} %` : 'Sí (la de la empresa)') : null], ['Teléfono', c.telefono], ['Email', c.email], ['Idioma', c.idioma], ['Notas', c.notas]]
-          .concat([['Cobro', c.por_nomina ? 'Por nómina (no se factura)' : null]])
+        [['NIF', c.codigo], ['Tipo', OPCIONES_TIPO[tipoDe(c)] || c.tipo], ['Retención IRPF', c.aplica_irpf ? (c.irpf_pct != null ? `${c.irpf_pct} %` : 'Sí (la de la empresa)') : null], ['Teléfono', c.telefono], ['Email', c.email], ['Idioma', c.idioma], ['Notas', c.notas]]
           .map(([k, v]) => v ? [h('dt', k), h('dd', v)] : null)),
       puedeEditar(app.rol) ? h('button.btn', { onclick: () => editar(app, c) }, 'Editar') : null));
 }
@@ -155,14 +159,16 @@ export async function editar(app, c, { recargar = true } = {}) {
     const i = h('input', { id: 'f-' + k, value: c[k] ?? '', ...attrs });
     return [h('label', { for: 'f-' + k }, etiqueta), i];
   };
-  // Particular: nunca se le retiene IRPF. Al pasar a profesional se propone aplicarla (se puede desmarcar).
-  const tipo = h('select', { id: 'f-tipo', onchange: () => { aplicaIrpf.checked = tipo.value !== 'PARTICULAR'; sincronizarIrpf(); } },
-    Object.entries(TIPOS_CLIENTE).map(([v, t]) => h('option', { value: v, selected: (c.tipo || 'PARTICULAR') === v }, t)));
+  // Particular y por nómina: nunca se les retiene IRPF (al de nómina no se le factura).
+  // Al pasar a profesional se propone aplicarla (se puede desmarcar).
+  const sinIrpf = () => tipo.value === 'PARTICULAR' || tipo.value === NOMINA;
+  const tipo = h('select', { id: 'f-tipo', onchange: () => { aplicaIrpf.checked = !sinIrpf(); sincronizarIrpf(); } },
+    Object.entries(OPCIONES_TIPO).map(([v, t]) => h('option', { value: v, selected: tipoDe(c) === v }, t)));
   const aplicaIrpf = h('input', { type: 'checkbox', id: 'f-aplica_irpf', checked: !!c.aplica_irpf, onchange: () => sincronizarIrpf() });
   const irpfPct = h('input', { id: 'f-irpf_pct', type: 'number', min: 0, max: 50, step: 0.5, value: c.irpf_pct ?? '', placeholder: 'el de la empresa' });
   const sincronizarIrpf = () => {
-    if (tipo.value === 'PARTICULAR') aplicaIrpf.checked = false;
-    aplicaIrpf.disabled = tipo.value === 'PARTICULAR';
+    if (sinIrpf()) aplicaIrpf.checked = false;
+    aplicaIrpf.disabled = sinIrpf();
     irpfPct.disabled = !aplicaIrpf.checked;
   };
   sincronizarIrpf();
@@ -178,7 +184,6 @@ export async function editar(app, c, { recargar = true } = {}) {
     campo('telefono', 'Teléfono', { type: 'tel' }),
     campo('email', 'Email', { type: 'email' }),
     h('label', { for: 'f-notas' }, 'Notas'), h('textarea', { id: 'f-notas', rows: 2, value: c.notas || '' }),
-    h('label.check', h('input', { type: 'checkbox', id: 'f-por_nomina', checked: !!c.por_nomina }), ' Me paga por nómina: sus horas no se facturan'),
     h('label.check', h('input', { type: 'checkbox', id: 'f-activo', checked: c.activo !== false }), ' Activo'));
   return dialogo(c.id ? 'Editar cliente' : 'Nuevo cliente', form, [
     { texto: 'Cancelar', valor: false },
@@ -188,8 +193,7 @@ export async function editar(app, c, { recargar = true } = {}) {
         const v = k => form.querySelector('#f-' + k).value.trim() || null;
         const datos = { id: c.id, nombre: v('nombre'), codigo: v('codigo').toUpperCase(), direccion: v('direccion'), cp: v('cp'), localidad: v('localidad'),
           municipio: v('municipio'), provincia: v('provincia'), telefono: v('telefono'), email: v('email'), notas: v('notas'),
-          tipo: tipo.value, aplica_irpf: aplicaIrpf.checked, irpf_pct: aplicaIrpf.checked && irpfPct.value !== '' ? Number(irpfPct.value) : null, activo: form.querySelector('#f-activo').checked,
-          por_nomina: form.querySelector('#f-por_nomina').checked };
+          tipo: tipo.value !== NOMINA ? tipo.value : c.tipo && c.tipo !== 'PARTICULAR' ? c.tipo : 'EMPRESA', por_nomina: tipo.value === NOMINA, aplica_irpf: aplicaIrpf.checked, irpf_pct: aplicaIrpf.checked && irpfPct.value !== '' ? Number(irpfPct.value) : null, activo: form.querySelector('#f-activo').checked };
         const guardado = await accion(null, () => api.guardarCliente(app.org, datos));
         if (!guardado) return undefined;
         aviso('Cliente guardado', 'ok');
