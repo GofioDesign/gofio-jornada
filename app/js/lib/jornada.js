@@ -11,8 +11,10 @@ const t = f => new Date(f.momento_declarado || f.momento).getTime();
 const efectivo = f => !f.anulado && (f.origen === 'APP' || f.origen === undefined || f.estado === 'APROBADA');
 
 /** Estado actual a partir de los fichajes de la app (ordenados o no). */
+// Las asignaciones aprobadas (cliente o proyecto puesto a posteriori) cuentan para saber en qué se está, no para el estado.
 export function estadoActual(fichajes) {
-  const app = fichajes.filter(f => !f.anulado && (f.origen || 'APP') === 'APP').sort((a, b) => t(a) - t(b));
+  const app = fichajes.filter(f => !f.anulado && ((f.origen || 'APP') === 'APP' || (f.tipo === 'CAMBIO_CLIENTE' && f.estado === 'APROBADA')))
+    .sort((a, b) => t(a) - t(b) || Date.parse(a.momento) - Date.parse(b.momento));
   let estado = 'FUERA', desde = null, desp = null, cliente = null, proyecto = null;
   for (const f of app) {
     switch (f.tipo) {
@@ -167,13 +169,16 @@ export function momentoLocal(dia, hhmm, tz = 'Atlantic/Canary') {
 
 // Parte [desde, hasta) de un tramo que se asigna a otro cliente o proyecto: qué cambios de cliente hay que registrar.
 // Devuelve [{ momento, cliente_id, proyecto_id }] en el orden en que se registran, o lanza un error si la parte no cabe.
+// hasta = null en un tramo en curso: la asignación sigue con el cronómetro, sin cerrarlo ni volver a lo anterior.
 export const instante = x => typeof x === 'number' ? x : Date.parse(x);
-export function cambiosParaParte(t, desde, hasta, nuevo) {
-  const ini = instante(t.inicio), fin = t.fin ? instante(t.fin) : Date.now();
-  if (!(desde >= ini && hasta <= fin && desde < hasta)) throw new Error('Elige horas dentro del tramo, con el inicio antes que el fin');
+export function cambiosParaParte(t, desde, hasta, nuevo, ahora = Date.now()) {
+  const ini = instante(t.inicio), fin = t.fin ? instante(t.fin) : ahora;
+  const sigue = !t.fin && hasta === null;
+  if (hasta === null && !sigue) hasta = fin;
+  if (!(desde >= ini && (sigue || hasta <= fin) && desde < (sigue ? fin : hasta))) throw new Error('Elige horas dentro del tramo, con el inicio antes que el fin');
   const cambios = [];
   // a partir de «hasta» se vuelve a lo que había (si el tramo sigue después)
-  if (hasta < fin) cambios.push({ momento: hasta, cliente_id: t.cliente_id || null, proyecto_id: t.proyecto_id || null });
+  if (!sigue && hasta < fin) cambios.push({ momento: hasta, cliente_id: t.cliente_id || null, proyecto_id: t.proyecto_id || null });
   cambios.push({ momento: desde, cliente_id: nuevo.cliente_id || null, proyecto_id: nuevo.proyecto_id || null });
   return cambios;
 }

@@ -55,3 +55,15 @@ test('nombre de la tarea personal a partir del proyecto', async () => {
   assert.equal(tareaDesdeProyecto('Casa: lavar loza'), 'Lavar loza');
   assert.equal(tareaDesdeProyecto('Gimnasio'), 'Gimnasio');
 });
+
+test('apuntar a posteriori una tarea que no se cronometró', async () => {
+  const { tiempoPasado } = await import('../app/js/lib/personal.js');
+  const ahora = Date.parse('2026-10-11T12:00:00Z');
+  const tiempos = [{ inicio: '2026-10-11T08:00:00Z', fin: '2026-10-11T09:00:00Z' }];
+  // Canarias en octubre es UTC+1
+  assert.deepEqual(tiempoPasado({ dia: '2026-10-11', desde: '10:30', hasta: '11:15' }, tiempos, 'Atlantic/Canary', ahora),
+    { inicio: '2026-10-11T09:30:00.000Z', fin: '2026-10-11T10:15:00.000Z' });
+  assert.throws(() => tiempoPasado({ dia: '2026-10-11', desde: '11:00', hasta: '10:00' }, tiempos, 'Atlantic/Canary', ahora), /posterior/);
+  assert.throws(() => tiempoPasado({ dia: '2026-10-11', desde: '12:00', hasta: '14:00' }, tiempos, 'Atlantic/Canary', ahora), /futuro/);
+  assert.throws(() => tiempoPasado({ dia: '2026-10-11', desde: '09:30', hasta: '10:30' }, tiempos, 'Atlantic/Canary', ahora), /solapa/);
+});

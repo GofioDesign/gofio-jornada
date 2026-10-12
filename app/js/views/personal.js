@@ -1,9 +1,9 @@
 // MI TIEMPO: cronómetro privado por tareas personales (cocinar, tender la ropa…).
 // No es un fichaje: no entra en el registro de jornada ni en la facturación, y solo lo ve quien lo apunta.
 import { api } from '../api.js';
-import { h, montar, accion, aviso, hora, hoyISO, sumarDias } from '../ui.js';
+import { h, montar, accion, aviso, dialogo, hora, hoyISO, sumarDias } from '../ui.js';
 import { fmtMin } from '../lib/jornada.js';
-import { TAREAS_PROPUESTAS, totalesPorTarea, cronometro, minutosDe, diaLocal, separarTareas } from '../lib/personal.js';
+import { TAREAS_PROPUESTAS, totalesPorTarea, cronometro, minutosDe, diaLocal, separarTareas, tiempoPasado } from '../lib/personal.js';
 
 export async function vistaPersonal(app) {
   const raiz = h('section.pila.personal');
@@ -42,6 +42,7 @@ export async function vistaPersonal(app) {
             }),
           }, t.nombre)))
         : h('p.vacio', 'Aún no tienes tareas. Añade la primera abajo.'),
+      activas.length ? h('button.btn.enlace', { type: 'button', onclick: () => apuntarPasado(activas) }, '+ Apuntar una tarea que no cronometraste') : null,
       h('div.tarjeta',
         h('h2', 'Hoy'),
         resumen(deHoy),
@@ -53,6 +54,30 @@ export async function vistaPersonal(app) {
           }) }, 'Borrar')))) : null),
       h('div.tarjeta', h('h2', 'Esta semana'), resumen(deSemana)),
       gestionar(activas));
+  };
+
+  // Tarea hecha sin cronómetro: se apunta con su día y sus horas de inicio y fin
+  const apuntarPasado = async activas => {
+    const hoy = hoyISO(app.tz);
+    const tarea = h('select', { id: 'p-tarea' }, activas.map(t => h('option', { value: t.id }, t.nombre)));
+    const dia = h('input', { type: 'date', id: 'p-dia', value: hoy, max: hoy, min: sumarDias(hoy, -6), required: true });
+    const desde = h('input', { type: 'time', id: 'p-desde', required: true, 'aria-label': 'Desde' });
+    const hasta = h('input', { type: 'time', id: 'p-hasta', required: true, 'aria-label': 'Hasta' });
+    const ok = await dialogo('Apuntar una tarea pasada', [
+      h('label', { for: 'p-tarea' }, 'Tarea'), tarea,
+      h('label', { for: 'p-dia' }, 'Día'), dia,
+      h('div.fila-botones', h('label', 'De ', desde), h('label', ' a ', hasta)),
+    ], [
+      { texto: 'Cancelar', valor: false },
+      { texto: 'Guardar', clase: 'primario', valor: async () => {
+        let t;
+        try { t = tiempoPasado({ dia: dia.value, desde: desde.value, hasta: hasta.value }, tiempos, app.tz); }
+        catch (e) { aviso(e.message, 'error'); return undefined; }
+        const r = await accion(null, async () => { await api.apuntarPersonal(tarea.value, t.inicio, t.fin); return true; });
+        return r ? true : undefined;
+      } },
+    ]);
+    if (ok) { aviso('Tiempo apuntado', 'ok'); await cargar(); }
   };
 
   const resumen = lista => {

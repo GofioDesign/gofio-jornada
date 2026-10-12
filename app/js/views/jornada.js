@@ -62,6 +62,10 @@ export async function vistaJornada(app) {
     reloj = setInterval(() => { if (!document.body.contains(relojEl)) return clearInterval(reloj); relojEl.textContent = fmtReloj(msTrabajo()); }, 1000);
   }
 
+  // Tramo de trabajo en marcha: asignarlo solo le pone cliente o proyecto, el cronómetro sigue
+  const enCurso = st.estado === 'TRABAJANDO' && !st.desplazamiento
+    ? tramos(deHoy).filter(t => t.tipo === 'TRABAJO' && !t.fin).map(t => ({ ...t, user_id: app.e.user_id, dia: hoy }))[0] : null;
+  const recargar = () => window.dispatchEvent(new HashChangeEvent('hashchange'));
   const destinoActual = st.desplazamiento ? cli(st.desplazamiento.cliente_id) : null;
   const tarjeta = h('div.tarjeta.estado.' + st.estado.toLowerCase(),
     h('div.estado-cab', h('span.punto'), h('strong', etiquetas[st.estado]), st.desde ? h('span.ayuda', ' desde ' + hora(st.desde, app.tz)) : null),
@@ -73,12 +77,13 @@ export async function vistaJornada(app) {
       destinoActual && tieneDestino(destinoActual) ? h('div.fila-botones',
         h('a.btn', { href: navegarUrl(destinoActual, 'waze'), target: '_blank', rel: 'noopener' }, 'Abrir Waze'),
         h('a.btn', { href: navegarUrl(destinoActual, 'maps'), target: '_blank', rel: 'noopener' }, 'Abrir Maps')) : null) : null,
-    h('div.botones-fichar', acciones.map(tipo => botonFichar(app, tipo, clientes, proyectos, st))));
+    h('div.botones-fichar', acciones.map(tipo => botonFichar(app, tipo, clientes, proyectos, st)),
+      enCurso && !st.cliente_id && !st.proyecto_id ? h('button.btn.primario', { type: 'button', onclick: async e => { if (await asignarTramo(app, clientes, proyectos, enCurso, e.currentTarget)) recargar(); } },
+        'Asignar cliente o proyecto') : null));
 
   // ---------- línea de tiempo del día (hoy o uno anterior) ----------
   const delDia = (fichajesDia || fichajes).filter(f => diaLocal(Date.parse(f.momento_declarado || f.momento), app.tz) === dia);
   const trs = tramos(delDia, dia === hoy ? Date.now() : null).map(t => ({ ...t, user_id: app.e.user_id, dia }));
-  const recargar = () => window.dispatchEvent(new HashChangeEvent('hashchange'));
   const tot = totales(trs);
   const irA = d => { diaVista = d; window.dispatchEvent(new HashChangeEvent('hashchange')); };
   const lineaTiempo = h('div.tarjeta',
@@ -92,7 +97,7 @@ export async function vistaJornada(app) {
       h('span.horas', hora(t.inicio, app.tz) + ' – ' + (t.fin ? hora(t.fin, app.tz) : 'ahora')),
       h('span.que', t.tipo === 'TRABAJO' ? (enQue(t.cliente_id, t.proyecto_id) || 'Sin asignar') : t.tipo === 'PAUSA' ? 'Pausa' : '🚗 Hacia ' + (cli(t.cliente_id)?.nombre || 'destino'),
         t.tipo === 'TRABAJO' ? h('button.btn.enlace.asignar', { type: 'button', onclick: async e => { if (await asignarTramo(app, clientes, proyectos, t, e.currentTarget)) recargar(); } },
-          t.cliente_id || t.proyecto_id ? 'Cambiar' : 'Asignar cliente o proyecto') : null,
+          t.cliente_id || t.proyecto_id ? 'Corregir asignación' : 'Asignar cliente o proyecto') : null,
         t.tipo === 'TRABAJO' ? h('button.btn.enlace.asignar', { type: 'button', onclick: async () => { if (await editarNotaTramo(app, t, notaDeTramo(notas, t), productos)) recargar(); } },
           notaDeTramo(notas, t) ? '📝 Nota' : '📝 Añadir nota') : null,
         t.tipo === 'TRABAJO' && notaDeTramo(notas, t) ? h('small.nota-tramo', resumenNota(notaDeTramo(notas, t))) : null),
@@ -178,10 +183,9 @@ async function preguntarQr(app, st, token, enQue) {
 }
 
 function botonFichar(app, tipo, clientes, proyectos, st) {
-  const sinCliente = !st.cliente_id && !st.proyecto_id;
   const textos = {
     ENTRADA: ['Iniciar jornada', 'primario'], PAUSA: ['Pausa', ''], REANUDAR: ['Reanudar', 'primario'], SALIDA: ['Finalizar jornada', 'peligro'],
-    DESPLAZAMIENTO_INICIO: ['🚗 Salir hacia un cliente', ''], DESPLAZAMIENTO_FIN: ['📍 He llegado', 'primario'], CAMBIO_CLIENTE: sinCliente ? ['Elegir cliente o proyecto', 'primario'] : ['Cambiar de cliente o proyecto', 'enlace'],
+    DESPLAZAMIENTO_INICIO: ['🚗 Salir hacia un cliente', ''], DESPLAZAMIENTO_FIN: ['📍 He llegado', 'primario'], CAMBIO_CLIENTE: ['Cambiar de proyecto/cliente', ''],
   };
   const [txt, clase] = textos[tipo];
   return h('button.btn' + (clase ? '.' + clase : ''), {
@@ -190,10 +194,12 @@ function botonFichar(app, tipo, clientes, proyectos, st) {
       const btn = e.currentTarget;
       let cliente_id = null, proyecto_id = null;
       if (tipo === 'ENTRADA' || tipo === 'CAMBIO_CLIENTE' || tipo === 'DESPLAZAMIENTO_INICIO') {
-        const r = await elegirCliente(app, clientes, tipo, { proyectos: tipo === 'DESPLAZAMIENTO_INICIO' ? null : proyectos });
+        const r = await elegirCliente(app, clientes, tipo, { proyectos: tipo === 'DESPLAZAMIENTO_INICIO' ? null : proyectos,
+          extra: tipo === 'CAMBIO_CLIENTE' ? h('p.ayuda', 'Se cierra el tramo en curso y empieza otro desde ahora.') : null });
         if (r === null) return;
         ({ cliente_id, proyecto_id } = r);
         if (tipo === 'CAMBIO_CLIENTE' && !cliente_id && !proyecto_id) return aviso('Elige un cliente o un proyecto', 'error');
+        if (tipo === 'CAMBIO_CLIENTE' && (proyecto_id || null) === (st.proyecto_id || null) && (proyecto_id || cliente_id === st.cliente_id)) return aviso('Ya estás trabajando en eso', 'info');
       }
       if (tipo === 'SALIDA' && !btn.dataset.confirmado && !confirm('¿Finalizar la jornada de hoy?')) return;
       delete btn.dataset.confirmado;
@@ -295,14 +301,16 @@ export async function asignarTramo(app, clientes, proyectos, t, btn, { user = nu
   const hasta = h('input', { type: 'time', value: hFin, 'aria-label': 'Hasta' });
   const rango = h('div.rango-tramo',
     h('small.ayuda', 'Parte del tramo que asignas (por defecto, entero):'),
-    h('div.fila-botones', h('label', 'De ', desde), h('label', ' a ', hasta)));
+    h('div.fila-botones', h('label', 'De ', desde), h('label', ' a ', hasta)),
+    t.fin ? null : h('small.ayuda', 'El tramo sigue en marcha con lo que elijas; no se para el cronómetro.'));
   const r = await elegirCliente(app, clientes, 'ASIGNAR', { proyectos, extra: rango,
     titulo: titulo || `¿En qué trabajaste de ${hIni} a ${t.fin ? hFin : 'ahora'}?` });
   if (!r || (!r.cliente_id && !r.proyecto_id)) return false;
   // Sin tocar las horas, se usa el instante exacto del tramo (los fichajes llevan segundos)
   const d = desde.value === hIni ? ini : momentoLocal(dia, desde.value, app.tz);
-  const a = hasta.value === hFin ? fin : momentoLocal(dia, hasta.value, app.tz);
-  const entero = d === ini && a === fin;
+  // Tramo en curso con la hora de fin sin tocar: sin fin (sigue en marcha con lo elegido)
+  const a = hasta.value === hFin ? (t.fin ? fin : null) : momentoLocal(dia, hasta.value, app.tz);
+  const entero = d === ini && (a === fin || a === null);
   if (entero && r.cliente_id === t.cliente_id && (r.proyecto_id || null) === (t.proyecto_id || null)) return false;
   const res = await accion(btn, async () => {
     const cambios = cambiosParaParte(t, d, a, r);
@@ -311,7 +319,7 @@ export async function asignarTramo(app, clientes, proyectos, t, btn, { user = nu
     return ultimo;
   });
   if (!res) return false;
-  aviso(res?.estado === 'PENDIENTE' ? 'Asignación enviada; la aprobará tu responsable' : entero ? 'Asignado' : `Asignado de ${desde.value} a ${hasta.value}`, 'ok');
+  aviso(res?.estado === 'PENDIENTE' ? 'Asignación enviada; la aprobará tu responsable' : entero ? 'Asignado' : a === null ? `Asignado desde las ${desde.value}` : `Asignado de ${desde.value} a ${hasta.value}`, 'ok');
   return true;
 }
 
