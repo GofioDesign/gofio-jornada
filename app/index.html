@@ -27,6 +27,18 @@
   <main id="vista" class="vista"><div class="cargando-pagina">Cargando…</div></main>
   <nav id="espacios" class="espacios" aria-label="Espacio" hidden></nav>
   <div id="aviso" class="aviso" role="status" aria-live="polite"></div>
+  <script>
+    // Si la app no arranca (p. ej. un archivo antiguo en caché tras publicar), ofrece recargar limpiando la caché en vez de quedarse en «Cargando».
+    setTimeout(function () {
+      var c = document.querySelector('.cargando-pagina');
+      if (!c) return;
+      c.innerHTML = 'La app no ha terminado de cargar. <button class="btn primario" type="button">Recargar</button>';
+      c.querySelector('button').onclick = function () {
+        var limpiar = window.caches ? caches.keys().then(function (ks) { return Promise.all(ks.map(function (k) { return caches.delete(k); })); }) : Promise.resolve();
+        limpiar.then(function () { location.reload(); }, function () { location.reload(); });
+      };
+    }, 10000);
+  </script>
   <noscript>Esta aplicación necesita JavaScript.</noscript>
 </body>
 </html>

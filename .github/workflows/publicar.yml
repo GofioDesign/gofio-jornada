@@ -14,9 +14,14 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - run: npm test
-      # Cada publicación pide su propia hoja de estilos y su main.js (?v=commit): así nunca se mezcla
-      # el JS nuevo con el CSS de la versión anterior que aún guarde la caché del navegador o del CDN.
-      - run: sed -i "s/?v=dev/?v=${GITHUB_SHA::8}/g" app/index.html
+      # Cada publicación pide sus propios archivos (?v=commit): la hoja de estilos, main.js y todos los módulos que importa.
+      # Así nunca se mezcla el código nuevo con un archivo de la versión anterior que aún guarde la caché del navegador
+      # o del CDN (un módulo antiguo sin una función nueva deja la app parada en «Cargando»).
+      - run: |
+          V=${GITHUB_SHA::8}
+          sed -i "s/?v=dev/?v=$V/g" app/index.html
+          find app/js -name '*.js' -exec sed -i -E "s#(from '\.\.?/[^']+\.js)'#\1?v=$V'#g" {} +
+          grep -rqE "from '\.\.?/[^']+\.js'" app/js && { echo "Quedan importaciones sin versión"; exit 1; } || true
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with: { path: app }
